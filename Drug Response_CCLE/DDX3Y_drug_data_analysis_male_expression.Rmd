@@ -1,0 +1,744 @@
+---
+title: "DDX3Y_drug_data_analysis_male_expression"
+author: "Alex Mangelsdorf and Mason Farmwald"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the Knit button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+This R Markdown file will be used for a general analysis of the CCLE Drug Treatment Data retrieved from the CCLE portal.
+
+```{r Libraries, include=FALSE}
+
+# check if the package has been installed
+
+# if not, install it
+
+if(!require(ggplot2)){
+
+    install.packages("ggplot2")
+
+}
+
+if(!require(UpSetR)){
+
+    install.packages("UpSetR")
+
+}
+
+if(!require(tinytex)){
+
+    install.packages("tinytex()")
+
+}
+
+if(!require(tidyverse)){
+
+  install.packages("tidyverse")
+
+}
+
+if(!require(readxl)){
+
+  install.packages("readxl")
+
+}
+
+if(!require(writexl)){
+
+  install.packages("writexl")
+
+}
+
+# Load necessary libraries
+
+library(tidyverse)
+
+library(readxl)
+
+library(writexl)
+
+```
+
+Set up a working directory path. This will ensure that the knitted file is stored in the correct location.
+
+```{r Working Directory}
+
+working_directory = "/scratch/aemangel/CCLE_project/"
+
+setwd(working_directory)
+
+data_directory = "/scratch/aemangel/CCLE_project/"
+
+```
+
+Display the first few rows of data, to make sure that the file is being read correctly and that there are no errors in the data. The data is found from <https://depmap.org/portal/download/all/> and is the Pharmacological Profiling tab under the Drug Screens category.
+
+```{r Labeling Data}
+
+# Load the Pharmocological Data files
+
+drug_data <- read.csv(paste0(data_directory, "CCLE_NP24.2009_Drug_data_2015.02.24.csv"))
+
+GNF_data = read_xls("/scratch/aemangel/CCLE_project/CCLE_GNF_data_090613.xls")
+
+drug_profiling_data = read.csv("/scratch/aemangel/CCLE_project/CCLE_NP24.2009_profiling_2012.02.20.csv")
+
+CCLE_ORIG_annotation_data = read.csv("/scratch/aemangel/CCLE_project/Cell_lines_annotations_20181226.txt", header = TRUE, sep = "\t")
+
+chr_y_expression_count = read.csv("/scratch/aemangel/CCLE_project/chrY_gene_expression.csv")
+
+# Display the first few rows of the data
+
+#head(data)
+
+```
+
+Once we know that the file is displayed correctly, retrieve the summary data for all statistics.
+
+```{r Stats}
+
+# Display summary statistics
+
+summary(drug_data)
+
+```
+
+For clarity, print the names of all columns without the data.
+
+```{r Names}
+
+# Get the names of all columns in the dataset
+
+column_names <- names(drug_data)
+
+# Print the list of column names
+
+print(column_names)
+
+```
+
+Create a list to get a clear look at all compounds used in the experimental treatment.
+
+```{r Unique Compounds}
+
+# Get unique names from the "Compound" column
+
+unique_compounds <- unique(drug_data$Compound)
+
+# Print the list of unique compounds
+
+print(unique_compounds)
+
+```
+
+This section is going to begin by looking at the sex comparison of IC50s and EC50s for the provided compounds. The needed columns will be put into a new data frame called IC50_EC50_list.
+
+```{r Sex Comparison via IC50s and EC50s}
+
+#Combine columns CCLE.Cell.Line.Name, Compound, and IC50..uM. columns into a new IC50_list data frame. This data frame will be used build the female_list and male_list lists.
+
+IC50_EC50_list = cbind(drug_data[1],drug_data[3],drug_data[10],drug_data[11])
+
+female_list = list()
+
+male_list = list()
+
+unknown_list = list()
+
+# List values given for Gender in the CCLE_ORIG_annotation_data
+
+levels(factor(CCLE_ORIG_annotation_data$Gender))
+
+# Combine CCLE ID and reported gender from CCLE_ORIG table
+
+get_reported_sex = CCLE_ORIG_annotation_data$Gender
+
+names(get_reported_sex) = CCLE_ORIG_annotation_data$CCLE_ID
+
+get_reported_sex = na.omit(get_reported_sex)
+
+# This is the for loop to match the cell line annotations up with genders. A female_list and male_list were created to hold the names of female and male cell lines respectively
+
+i = 1
+
+for(i in 1:length(drug_data$CCLE.Cell.Line.Name)){
+
+  if (drug_data$CCLE.Cell.Line.Name[i] %in% CCLE_ORIG_annotation_data$CCLE_ID) {
+
+  if(get_reported_sex[drug_data$CCLE.Cell.Line.Name[i]] == "female"){
+
+    female_list = c(female_list, drug_data$CCLE.Cell.Line.Name[i])
+
+  } else if(get_reported_sex[drug_data$CCLE.Cell.Line.Name[i]] == "male"){
+
+    male_list = c(male_list, drug_data$CCLE.Cell.Line.Name[i])
+
+  }
+
+}
+
+}
+
+```
+
+The chunk above created the IC50_EC50_list list, the female_list list, the male_list list, and added each cell line name from the IC50_EC50_list to the male or female lists. The sex is determined from the Cell_lines_annotations_20181226.txt file (from the Gender column), which is referred to as CCLE_ORIG_annotation_data in the code. 
+
+The next chunk is going to now add either "male" or "female" to the generated IC50_EC50_list in a new column labeled "Sex". This will allow us to plot the differences in IC50s and EC50s between cell lines labeled male or female.
+
+```{r male and female Addition to IC50_list}
+
+# This code is adding a "Sex" column to the IC50_EC50_list. Unknown cell lines are labeled with "unknown", although we may be able to further identify those lines later via further analysis
+
+IC50_EC50_list$Sex<-ifelse(IC50_EC50_list$CCLE.Cell.Line.Name %in% female_list, "female", ifelse(IC50_EC50_list$CCLE.Cell.Line.Name %in% male_list, "male", "unknown"))
+
+```
+
+This next chunk will be taking the chr_y_expression_count data frame and add the necessary columns to the IC50_EC50_list. This will allow plotting of low vs intermediate vs high expression counts against the IC50s and EC50s.
+
+```{r chr y expression counts addition to IC50_EC50_list}
+
+# This establishes the low, intermediate, and high expression lists
+
+low_expression_list = list()
+
+intermediate_expression_list = list()
+
+high_expression_list = list()
+
+# Combine cell_line and DDX3Y_expression_category from chr_y_expression_count table
+
+get_reported_category = chr_y_expression_count$DDX3Y_expression_category
+
+names(get_reported_category) = chr_y_expression_count$cell_line
+
+get_reported_category = na.omit(get_reported_category)
+
+# This is the for loop to match the cell line names up with its expression label of low, intermediate, and high and add them to their respective lists.
+
+i = 1
+
+for(i in 1:length(chr_y_expression_count$cell_line)){
+
+  if (drug_data$CCLE.Cell.Line.Name[i] %in% chr_y_expression_count$cell_line) {
+
+  if(get_reported_category[chr_y_expression_count$cell_line[i]] == "low_expression"){
+
+    low_expression_list = c(low_expression_list, chr_y_expression_count$cell_line[i])
+
+  } else if(get_reported_category[chr_y_expression_count$cell_line[i]] == "intermediate_expression"){
+
+    intermediate_expression_list = c(intermediate_expression_list, chr_y_expression_count$cell_line[i])
+
+  } else if(get_reported_category[chr_y_expression_count$cell_line[i]] == "high_expression"){
+
+    high_expression_list = c(high_expression_list, chr_y_expression_count$cell_line[i])
+
+}}}
+
+# This code is adding a "DDX3Y_expression_category" column to the IC50_EC50_list. Unknown cell lines are labeled with "unknown", although we may be able to further identify those lines later via further analysis
+
+IC50_EC50_list$DDX3Y_expression_category<-ifelse(IC50_EC50_list$CCLE.Cell.Line.Name %in% low_expression_list, "low_expression", ifelse(IC50_EC50_list$CCLE.Cell.Line.Name %in% intermediate_expression_list, "intermediate_expression", ifelse(IC50_EC50_list$CCLE.Cell.Line.Name %in% high_expression_list, "high_expression", "unknown")))
+
+```
+
+The next chunk will be devoted to separating the large IC50_EC50_list into smaller lists that only contain 1 compound. This will help simplify the plotting process. 
+
+```{r Compound List Generation}
+
+#Drug List Generation
+
+AEW541_list = rbind(IC50_EC50_list[1:503,])
+
+Nilotinib_list = rbind(IC50_EC50_list[504:923,])
+
+p17AAG_list = rbind(IC50_EC50_list[924:1426,])
+
+PHA665752_list = rbind(IC50_EC50_list[1427:1929,])
+
+Lapatinib_list = rbind(IC50_EC50_list[1930:2433,])
+
+Nutlin3_list = rbind(IC50_EC50_list[2434:2937,])
+
+AZD0530_list = rbind(IC50_EC50_list[2938:3441,])
+
+PF2341066_list = rbind(IC50_EC50_list[3442:3945,])
+
+L685458_list = rbind(IC50_EC50_list[3946:4436,])
+
+ZD6474_list = rbind(IC50_EC50_list[4437:4932,])
+
+Panobinostat_list = rbind(IC50_EC50_list[4933:5432,])
+
+Sorafenib_list = rbind(IC50_EC50_list[5433:5935,])
+
+Irinotecan_list = rbind(IC50_EC50_list[5936:6252,])
+
+Topotecan_list = rbind(IC50_EC50_list[6253:6756,])
+
+LBW242_list = rbind(IC50_EC50_list[6757:7259,])
+
+PD0325901_list = rbind(IC50_EC50_list[7260:7763,])
+
+PD0332991_list = rbind(IC50_EC50_list[7764:8197,])
+
+Paclitaxel_list = rbind(IC50_EC50_list[8198:8700,])
+
+AZD6244_list = rbind(IC50_EC50_list[8701:9203,])
+
+PLX4720_list = rbind(IC50_EC50_list[9204:9699,])
+
+RAF265_list = rbind(IC50_EC50_list[9700:10159,])
+
+TAE684_list = rbind(IC50_EC50_list[10160:10663,])
+
+TKI258_list = rbind(IC50_EC50_list[10664:11167,])
+
+Erlotinib_list = rbind(IC50_EC50_list[11168:11670,])
+
+```
+
+The next chunks are going to look at the individual compounds and plot their IC50s and EC50s based on their labeled sex.
+
+
+```{r filter for males}
+# Filter data to include only male cell lines
+IC50_EC50_list <- IC50_EC50_list[IC50_EC50_list$CCLE.Cell.Line.Name %in% male_list, ]
+
+# Add a "Sex" column to the IC50_EC50_list
+IC50_EC50_list$Sex <- "male"
+
+# Filter data in other compound lists as well
+AEW541_list <- AEW541_list[AEW541_list$CCLE.Cell.Line.Name %in% male_list, ]
+Nilotinib_list <- Nilotinib_list[Nilotinib_list$CCLE.Cell.Line.Name %in% male_list, ]
+p17AAG_list <- p17AAG_list[p17AAG_list$CCLE.Cell.Line.Name %in% male_list, ]
+PHA665752_list <- PHA665752_list[PHA665752_list$CCLE.Cell.Line.Name %in% male_list, ]
+Lapatinib_list <- Lapatinib_list[Lapatinib_list$CCLE.Cell.Line.Name %in% male_list, ]
+Nutlin3_list <- Nutlin3_list[Nutlin3_list$CCLE.Cell.Line.Name %in% male_list, ]
+AZD0530_list <- AZD0530_list[AZD0530_list$CCLE.Cell.Line.Name %in% male_list, ]
+PF2341066_list <- PF2341066_list[PF2341066_list$CCLE.Cell.Line.Name %in% male_list, ]
+L685458_list <- L685458_list[L685458_list$CCLE.Cell.Line.Name %in% male_list, ]
+ZD6474_list <- ZD6474_list[ZD6474_list$CCLE.Cell.Line.Name %in% male_list, ]
+Panobinostat_list <- Panobinostat_list[Panobinostat_list$CCLE.Cell.Line.Name %in% male_list, ]
+Sorafenib_list <- Sorafenib_list[Sorafenib_list$CCLE.Cell.Line.Name %in% male_list, ]
+Irinotecan_list <- Irinotecan_list[Irinotecan_list$CCLE.Cell.Line.Name %in% male_list, ]
+Topotecan_list <- Topotecan_list[Topotecan_list$CCLE.Cell.Line.Name %in% male_list, ]
+LBW242_list <- LBW242_list[LBW242_list$CCLE.Cell.Line.Name %in% male_list, ]
+PD0325901_list <- PD0325901_list[PD0325901_list$CCLE.Cell.Line.Name %in% male_list, ]
+PD0332991_list <- PD0332991_list[PD0332991_list$CCLE.Cell.Line.Name %in% male_list, ]
+Paclitaxel_list <- Paclitaxel_list[Paclitaxel_list$CCLE.Cell.Line.Name %in% male_list, ]
+AZD6244_list <- AZD6244_list[AZD6244_list$CCLE.Cell.Line.Name %in% male_list, ]
+PLX4720_list <- PLX4720_list[PLX4720_list$CCLE.Cell.Line.Name %in% male_list, ]
+RAF265_list <- RAF265_list[RAF265_list$CCLE.Cell.Line.Name %in% male_list, ]
+TAE684_list <- TAE684_list[TAE684_list$CCLE.Cell.Line.Name %in% male_list, ]
+TKI258_list <- TKI258_list[TKI258_list$CCLE.Cell.Line.Name %in% male_list, ]
+Erlotinib_list <- Erlotinib_list[Erlotinib_list$CCLE.Cell.Line.Name %in% male_list, ]
+
+
+# ... Repeat this filtering for other compound lists as needed
+
+# Modify the plots to use the "Sex" column
+# AEW541 plots
+ggplot(AEW541_list, aes(x=AEW541_list$DDX3Y_expression_category, y=AEW541_list$IC50..uM., fill=AEW541_list$DDX3Y_expression_category)) +
+  geom_violin(trim = FALSE) +
+  scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) +
+  geom_jitter(size = 0.75) +
+  labs(title = "AEW541 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+```
+
+```{r AEW541 plot test}
+
+#These are plots for AEW541
+
+#AEW541 IC50
+
+ggplot(AEW541_list, aes(x=AEW541_list$DDX3Y_expression_category, y=AEW541_list$IC50..uM., fill=AEW541_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "AEW541 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#AEW541 EC50
+
+ggplot(AEW541_list, aes(x=AEW541_list$DDX3Y_expression_category, y=AEW541_list$EC50..uM., fill=AEW541_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "AEW541 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Nilotinib Males}
+
+#These are plots for Nilotinib
+
+#Nilotinib IC50
+
+ggplot(Nilotinib_list, aes(x=Nilotinib_list$DDX3Y_expression_category, y=Nilotinib_list$IC50..uM., fill=Nilotinib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Nilotinib IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Nilotinib EC50
+
+ggplot(Nilotinib_list, aes(x=Nilotinib_list$DDX3Y_expression_category, y=Nilotinib_list$EC50..uM., fill=Nilotinib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Nilotinib EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r 17-AAG males}
+
+#These are plots for 17-AAG
+
+#17-AAG IC50
+
+ggplot(p17AAG_list, aes(x=p17AAG_list$DDX3Y_expression_category, y=p17AAG_list$IC50..uM., fill=p17AAG_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "17-AAG IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#17-AAG EC50
+
+ggplot(p17AAG_list, aes(x=p17AAG_list$DDX3Y_expression_category, y=p17AAG_list$EC50..uM., fill=p17AAG_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "17-AAG EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r PHA665752 males}
+
+#These are plots for PHA665752
+
+#PHA665752 IC50
+
+ggplot(PHA665752_list, aes(x=PHA665752_list$DDX3Y_expression_category, y=PHA665752_list$IC50..uM., fill=PHA665752_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PHA665752 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#PHA665752 EC50
+
+ggplot(PHA665752_list, aes(x=PHA665752_list$DDX3Y_expression_category, y=PHA665752_list$EC50..uM., fill=PHA665752_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PHA665752 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Lapatinib males}
+
+#These are plots for Lapatinib
+
+#Lapatinib IC50
+
+ggplot(Lapatinib_list, aes(x=Lapatinib_list$DDX3Y_expression_category, y=Lapatinib_list$IC50..uM., fill=Lapatinib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Lapatinib IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Lapatinib EC50
+
+ggplot(Lapatinib_list, aes(x=Lapatinib_list$DDX3Y_expression_category, y=Lapatinib_list$EC50..uM., fill=Lapatinib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Lapatinib EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Nutlin3 males}
+
+#These are plots for Nutlin3
+
+#Nutlin3 IC50
+
+ggplot(Nutlin3_list, aes(x=Nutlin3_list$DDX3Y_expression_category, y=Nutlin3_list$IC50..uM., fill=Nutlin3_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Nutlin3 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Nutlin3 EC50
+
+ggplot(Nutlin3_list, aes(x=Nutlin3_list$DDX3Y_expression_category, y=Nutlin3_list$EC50..uM., fill=Nutlin3_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Nutlin3 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r AZD0530 males}
+
+#These are plots for AZD0530
+
+#AZD0530 IC50
+
+ggplot(AZD0530_list, aes(x=AZD0530_list$DDX3Y_expression_category, y=AZD0530_list$IC50..uM., fill=AZD0530_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "AZD0530 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#AZD0530 EC50
+
+ggplot(AZD0530_list, aes(x=AZD0530_list$DDX3Y_expression_category, y=AZD0530_list$EC50..uM., fill=AZD0530_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "AZD0530 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r PF2341066 males}
+
+#These are plots for PF2341066
+
+#PF2341066 IC50
+
+ggplot(PF2341066_list, aes(x=PF2341066_list$DDX3Y_expression_category, y=PF2341066_list$IC50..uM., fill=PF2341066_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PF2341066 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#PF2341066 EC50
+
+ggplot(PF2341066_list, aes(x=PF2341066_list$DDX3Y_expression_category, y=PF2341066_list$EC50..uM., fill=PF2341066_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PF2341066 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r L685458 males}
+
+#These are plots for L685458
+
+#L685458 IC50
+
+ggplot(L685458_list, aes(x=L685458_list$DDX3Y_expression_category, y=L685458_list$IC50..uM., fill=L685458_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "L685458 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#L685458 EC50
+
+ggplot(L685458_list, aes(x=L685458_list$DDX3Y_expression_category, y=L685458_list$EC50..uM., fill=L685458_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "L685458 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r ZD6474 males}
+
+#These are plots for ZD6474
+
+#ZD6474 IC50
+
+ggplot(ZD6474_list, aes(x=ZD6474_list$DDX3Y_expression_category, y=ZD6474_list$IC50..uM., fill=ZD6474_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "ZD6474 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#ZD6474 EC50
+
+ggplot(ZD6474_list, aes(x=ZD6474_list$DDX3Y_expression_category, y=ZD6474_list$EC50..uM., fill=ZD6474_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "ZD6474 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Panobinostat males}
+
+#These are plots for Panobinostat
+
+#Panobinostat IC50
+
+ggplot(Panobinostat_list, aes(x=Panobinostat_list$DDX3Y_expression_category, y=Panobinostat_list$IC50..uM., fill=Panobinostat_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Panobinostat IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Panobinostat EC50
+
+ggplot(Panobinostat_list, aes(x=Panobinostat_list$DDX3Y_expression_category, y=Panobinostat_list$EC50..uM., fill=Panobinostat_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Panobinostat EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Sorafenib males}
+
+#These are plots for Sorafenib
+
+#Sorafenib IC50
+
+ggplot(Sorafenib_list, aes(x=Sorafenib_list$DDX3Y_expression_category, y=Sorafenib_list$IC50..uM., fill=Sorafenib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Sorafenib IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Sorafenib EC50
+
+ggplot(Sorafenib_list, aes(x=Sorafenib_list$DDX3Y_expression_category, y=Sorafenib_list$EC50..uM., fill=Sorafenib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Sorafenib EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Irinotecan males}
+
+#These are plots for Irinotecan
+
+#Irinotecan IC50
+
+ggplot(Irinotecan_list, aes(x=Irinotecan_list$DDX3Y_expression_category, y=Irinotecan_list$IC50..uM., fill=Irinotecan_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Irinotecan IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Irinotecan EC50
+
+ggplot(Irinotecan_list, aes(x=Irinotecan_list$DDX3Y_expression_category, y=Irinotecan_list$EC50..uM., fill=Irinotecan_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Irinotecan EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Topotecan males}
+
+#These are plots for Topotecan
+
+#Topotecan IC50
+
+ggplot(Topotecan_list, aes(x=Topotecan_list$DDX3Y_expression_category, y=Topotecan_list$IC50..uM., fill=Topotecan_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Topotecan IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Topotecan EC50
+
+ggplot(Topotecan_list, aes(x=Topotecan_list$DDX3Y_expression_category, y=Topotecan_list$EC50..uM., fill=Topotecan_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Topotecan EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r LBW242 males}
+
+#These are plots for LBW242
+
+#LBW242 IC50
+
+ggplot(LBW242_list, aes(x=LBW242_list$DDX3Y_expression_category, y=LBW242_list$IC50..uM., fill=LBW242_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "LBW242 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#LBW242 EC50
+
+ggplot(LBW242_list, aes(x=LBW242_list$DDX3Y_expression_category, y=LBW242_list$EC50..uM., fill=LBW242_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "LBW242 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r PD0325901 males}
+
+#These are plots for PD0325901
+
+#PD0325901 IC50
+
+ggplot(PD0325901_list, aes(x=PD0325901_list$DDX3Y_expression_category, y=PD0325901_list$IC50..uM., fill=PD0325901_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PD0325901 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#PD0325901 EC50
+
+ggplot(PD0325901_list, aes(x=PD0325901_list$DDX3Y_expression_category, y=PD0325901_list$EC50..uM., fill=PD0325901_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PD0325901 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r PD0332991 males}
+
+#These are plots for PD0332991
+
+#PD0332991 IC50
+
+ggplot(PD0332991_list, aes(x=PD0332991_list$DDX3Y_expression_category, y=PD0332991_list$IC50..uM., fill=PD0332991_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PD0332991 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#PD0332991 EC50
+
+ggplot(PD0332991_list, aes(x=PD0332991_list$DDX3Y_expression_category, y=PD0332991_list$EC50..uM., fill=PD0332991_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PD0332991 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Paclitaxel males}
+
+#These are plots for Paclitaxel
+
+#Paclitaxel IC50
+
+ggplot(Paclitaxel_list, aes(x=Paclitaxel_list$DDX3Y_expression_category, y=Paclitaxel_list$IC50..uM., fill=Paclitaxel_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Paclitaxel IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Paclitaxel EC50
+
+ggplot(Paclitaxel_list, aes(x=Paclitaxel_list$DDX3Y_expression_category, y=Paclitaxel_list$EC50..uM., fill=Paclitaxel_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Paclitaxel EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r AZD6244 males}
+
+#These are plots for AZD6244
+
+#AZD6244 IC50
+
+ggplot(AZD6244_list, aes(x=AZD6244_list$DDX3Y_expression_category, y=AZD6244_list$IC50..uM., fill=AZD6244_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "AZD6244 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#AZD6244 EC50
+
+ggplot(AZD6244_list, aes(x=AZD6244_list$DDX3Y_expression_category, y=AZD6244_list$EC50..uM., fill=AZD6244_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "AZD6244 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r PLX4720 males}
+
+#These are plots for PLX4720
+
+#PLX4720 IC50
+
+ggplot(PLX4720_list, aes(x=PLX4720_list$DDX3Y_expression_category, y=PLX4720_list$IC50..uM., fill=PLX4720_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PLX4720 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#PLX4720 EC50
+
+ggplot(PLX4720_list, aes(x=PLX4720_list$DDX3Y_expression_category, y=PLX4720_list$EC50..uM., fill=PLX4720_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "PLX4720 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r RAF265 males}
+
+#These are plots for RAF265
+
+#RAF265 IC50
+
+ggplot(RAF265_list, aes(x=RAF265_list$DDX3Y_expression_category, y=RAF265_list$IC50..uM., fill=RAF265_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "RAF265 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#RAF265 EC50
+
+ggplot(RAF265_list, aes(x=RAF265_list$DDX3Y_expression_category, y=RAF265_list$EC50..uM., fill=RAF265_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "RAF265 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r TAE684 males}
+
+#These are plots for TAE684
+
+#TAE684 IC50
+
+ggplot(TAE684_list, aes(x=TAE684_list$DDX3Y_expression_category, y=TAE684_list$IC50..uM., fill=TAE684_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "TAE684 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#TAE684 EC50
+
+ggplot(TAE684_list, aes(x=TAE684_list$DDX3Y_expression_category, y=TAE684_list$EC50..uM., fill=TAE684_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "TAE684 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r TKI258 males}
+
+#These are plots for TKI258
+
+#TKI258 IC50
+
+ggplot(TKI258_list, aes(x=TKI258_list$DDX3Y_expression_category, y=TKI258_list$IC50..uM., fill=TKI258_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "TKI258 IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#TKI258 EC50
+
+ggplot(TKI258_list, aes(x=TKI258_list$DDX3Y_expression_category, y=TKI258_list$EC50..uM., fill=TKI258_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "TKI258 EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
+
+```{r Erlotinib males}
+
+#These are plots for Erlotinib
+
+#Erlotinib IC50
+
+ggplot(Erlotinib_list, aes(x=Erlotinib_list$DDX3Y_expression_category, y=Erlotinib_list$IC50..uM., fill=Erlotinib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Erlotinib IC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "IC50 (uM)")
+
+#Erlotinib EC50
+
+ggplot(Erlotinib_list, aes(x=Erlotinib_list$DDX3Y_expression_category, y=Erlotinib_list$EC50..uM., fill=Erlotinib_list$DDX3Y_expression_category)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("orchid", "olivedrab1", "#56B4E9", "orange")) + geom_jitter(size = 0.75) +
+labs(title = "Erlotinib EC50 Comparison in Male Cell Lines", x = "DDX3Y Expression Category", y = "EC50 (uM)")
+
+```
