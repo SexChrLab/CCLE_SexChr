@@ -1,0 +1,161 @@
+---
+title: "Proteomics Data"
+author: "Mason Farmwald"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+This is my preliminary analysis of the included proteomics data from the CCLE. I am going to be looking at our X-degenerate gene choices and see if I can find anything. The X-degenerate genes of interest to us are AMELY, DDX3Y/DBY, EIF1AY, KDM5D(SMCY/ARID1D), NLGN4Y, RPS4Y1, RPS4Y2, SRY, TBL1Y, TMSB4Y, USP9Y, UTY, ZFY, PCDH11Y, TGIF2LY. Below is a list of the genes full names and their acronyms:
+
+AMELY: Amelogenin, Y isoform DDX3Y/DBY: ATP-dependent RNA helicase DDX3Y (DEAD box proteins, characterized by the conserved motif Asp-Glu-Ala-Asp (DEAD), are putative RNA helicases.) EIF1AY: Eukaryotic translation initiation factor 1A, Y-chromosomal KDM5D(SMCY/ARID1D): Lysine-specific demethylase 5D NLGN4Y: neuroligin 4 Y-linked RPS4Y1: ribosomal protein S4 Y-linked 1 RPS4Y2: ribosomal protein S4 Y-linked 2 (The protein encoded by this gene is a ribosomal protein that is highly similar to RPS4Y1.) SRY: sex determining region Y TBL1Y: transducin beta like 1 Y-linked TMSB4Y: thymosin beta 4 Y-linked USP9Y: ubiquitin specific peptidase 9 Y-linked UTY: ubiquitously transcribed tetratricopeptide repeat containing, Y-linked ZFY: zinc finger protein Y-linked PCDH11Y: protocadherin 11 Y-linked TGIF2LY: TGFB induced factor homeobox 2 like Y-linked.
+
+This link explains everything about the proteomics data: <https://www.biorxiv.org/content/10.1101/2020.02.03.932384v1.full>
+
+```{r libraries, directories, & labeling data}
+
+# check if the package has been installed
+# if not, install it
+if(!require(ggplot2)){
+    install.packages("ggplot2")
+}
+if(!require(UpSetR)){
+    install.packages("UpSetR")
+}
+if(!require(tinytex)){
+    install.packages("tinytex()")
+}
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+}
+
+
+# load packages for use
+library(ggplot2)
+library(UpSetR)
+library(tinytex)
+library(tidyverse)
+
+
+# setting directories
+working_directory = "/home/mfarmwal/CCLE_project/Proteomics_Data/"
+setwd(working_directory)
+data_directory = "/data/compres/CCLE_CURE_2023/"
+
+
+# labeling data
+MS_abundance <- read.csv("/data/compres/CCLE_CURE_2023/proteomics/protein_quant_current_normalized.csv")
+
+cell_line_annotations <- read.csv("/data/compres/CCLE_CURE_2023/proteomics/Table_S1_Sample_Information.csv")
+
+cell_line_annotations_key <- read.csv("/data/compres/CCLE_CURE_2023/proteomics/Table_S1_Sample_Information_key.csv")
+
+# Ignore line 58, leaving in case this file is needed in the future, it takes forever to load so that's why it's a comment for now
+## CHANGE ME BACK protein_quant_w_peptides <- read.delim("/data/compres/CCLE_CURE_2023/proteomics/ccle_protein_quant_with_peptides_14745.tsv")
+
+CCLE_ORIG_annotation_data = read.csv(paste0(data_directory,"Cell_lines_annotations_20181226.txt"), header = TRUE, sep = "\t")
+
+```
+
+The following section will begin the exploration of the data.
+
+```{r data exploration}
+
+# This is isolating the columns we want from the MS_abundance data frame. Columns 2 and 49-426 are needed. This means we are working with 377 cell lines.
+colnames(MS_abundance)[49:426]
+ccle_ms_abundance = cbind(MS_abundance[2],MS_abundance[49:426])
+
+# Creating empty lists to hold male or female designation for each cell line
+male_list = list()
+female_list = list()
+null_list = list()
+
+# This is replacing the column headers "_Ten" with "?Ten" to make use of the splitting function easier and retain the cell line ID as well as the tissue type. Then the new column headers are split by "h" since all columns contain uppercase cell line names and no lowercase "h". After, the first element of each sublist is pulled to form my list of cell line names.
+current_column_header = colnames(ccle_ms_abundance)
+new_column_header = gsub("_Ten", "hTen", current_column_header)
+split_column_header = strsplit(unlist(new_column_header),split = "h")
+cell_line_name = sapply(split_column_header,"[[",1)
+
+# List values given for Gender in the CCLE_ORIG_annotation_data
+levels(factor(CCLE_ORIG_annotation_data$Gender))
+
+# Combine CCLE ID and reported gender from CCLE_ORIG table
+get_reported_sex = CCLE_ORIG_annotation_data$Gender
+names(get_reported_sex) = CCLE_ORIG_annotation_data$CCLE_ID
+get_reported_sex = na.omit(get_reported_sex)
+
+# This is the for loop to match the cell line annotations up with genders. A female_list and male_list were created to hold the names of female and male cell lines respectively
+i = 1
+for(i in 2:length(cell_line_name)){
+  if (cell_line_name[i] %in% CCLE_ORIG_annotation_data$CCLE_ID) {
+  if(get_reported_sex[cell_line_name[i]] == "female"){
+    female_list = c(female_list, current_column_header[i])
+  } else if(get_reported_sex[cell_line_name[i]] == "male"){
+    male_list = c(male_list, current_column_header[i])
+  }
+}
+}
+
+length(female_list) + length(male_list)
+```
+
+The chunk above created the initial lists. Now, the section below will create the male and female tables with the proteomics data for each sex.
+
+```{r male and female table building}
+
+# This section sets the sex chromosome genes we are looking to analyze in the data. More genes can be added as needed by adding here. We then use the original titles with the "TenPx..." to sort. 
+sex_chr_genes = c("AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "RPS4Y1", "RPS4Y2", "SRY", "TBL1Y", "TMSB4Y", "USP9Y", "UTY", "ZFY", "PCDH11Y", "TGIF2LY")
+sex_chr_ms_abundance = ccle_ms_abundance[ccle_ms_abundance$Gene_Symbol %in% sex_chr_genes,]
+
+# This is the renaming of the row names and the deletion of the Gene_Symbol column.
+rownames(sex_chr_ms_abundance) = c("KDM5D", "USP9Y","DDX3Y","UTY","EIF1AY","RPS4Y1")
+sex_chr_ms_abundance = subset(sex_chr_ms_abundance, select = -c(Gene_Symbol) )
+
+# IF NEW GENES ARE ADDED TO THE FIRST BIT OF CODE IN THIS CHUNK, CHECK IF IT POPS UP OR NOT IN sex_chr_ms_abundance BECAUSE NOT EVERY GENE I SEARCHED FOR WAS PRESENT. ROW NAMES WERE CHANGED MANUALLY SIMPLY BASED ON ORDER AND MAY NEED UPDATED IF MORE GENES ARE ADDED.
+
+# This is where I transposed sex_chr_ms_abundance so that gene names were the column and cell lines are the rows. Then, female, male, or unknown(which are cell lines not included in the 2019 version of the CCLE) labels were added based on the female_list and male_list lists generated in the chunk above.
+t_ccle = data.frame(t(sex_chr_ms_abundance))
+t_ccle$Sex<-ifelse(rownames(t_ccle) %in% female_list, "female", ifelse(rownames(t_ccle) %in% male_list, "male", "unknown"))
+
+```
+
+Now that the t_ccle data frame is prepared, we can begin to generate violin jitter plots below for each gene based on reported sex. I am using <http://www.sthda.com/english/wiki/ggplot2-violin-plot-quick-start-guide-r-software-and-data-visualization> to get the violin plots up.
+
+```{r plot generation}
+
+# Standard deviation calculation for each gene
+sd_f_KDM5D = sd(t_ccle$KDM5D[t_ccle$Sex == "female"], na.rm = TRUE)
+sd_f_USP9Y = sd(t_ccle$USP9Y[t_ccle$Sex == "female"], na.rm = TRUE)
+sd_f_DDX3Y = sd(t_ccle$DDX3Y[t_ccle$Sex == "female"], na.rm = TRUE)
+sd_f_UTY = sd(t_ccle$UTY[t_ccle$Sex == "female"], na.rm = TRUE)
+sd_f_EIF1AY = sd(t_ccle$EIF1AY[t_ccle$Sex == "female"], na.rm = TRUE)
+sd_f_RPS4Y1 = sd(t_ccle$RPS4Y1[t_ccle$Sex == "female"], na.rm = TRUE)
+
+# Set upper and lower thresholds as multiples of female SD
+upper_threshold = 3
+lower_threshold = 1
+
+# This is the plot generation for each of the genes
+# KDM5D
+ggplot(t_ccle, aes(x=t_ccle$Sex, y=t_ccle$KDM5D, fill=t_ccle$Sex)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + geom_jitter(size = 0.75) + geom_hline(yintercept = mean(t_ccle$KDM5D[t_ccle$Sex == "female"]) + upper_threshold * sd_f_KDM5D, linetype="dashed", color = "maroon") + geom_hline(yintercept = mean(t_ccle$KDM5D[t_ccle$Sex == "female"]) + lower_threshold * sd_f_KDM5D, linetype="dashed", color = "blue")
+
+# USP9Y
+ggplot(data = t_ccle, aes(x=t_ccle$Sex, fill = t_ccle$Sex, na.rm = TRUE, y=t_ccle$USP9Y)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + geom_jitter(size = 0.75) + geom_hline(yintercept = mean(t_ccle$USP9Y[t_ccle$Sex == "female"], na.rm = TRUE) + upper_threshold * sd_f_USP9Y, linetype="dashed", color = "maroon") + geom_hline(yintercept = mean(t_ccle$USP9Y[t_ccle$Sex == "female"], na.rm = TRUE) + lower_threshold * sd_f_USP9Y, linetype="dashed", color = "blue")
+
+# DDX3Y
+ggplot(data = t_ccle, aes(x=t_ccle$Sex, fill = t_ccle$Sex, na.rm = TRUE, y=t_ccle$DDX3Y)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + geom_jitter(size = 0.75) + geom_hline(yintercept = mean(t_ccle$DDX3Y[t_ccle$Sex == "female"], na.rm = TRUE) + upper_threshold * sd_f_DDX3Y, linetype="dashed", color = "maroon") + geom_hline(yintercept = mean(t_ccle$DDX3Y[t_ccle$Sex == "female"], na.rm = TRUE) + lower_threshold * sd_f_DDX3Y, linetype="dashed", color = "blue")
+
+# UTY
+ggplot(data = t_ccle, aes(x=t_ccle$Sex, fill = t_ccle$Sex, na.rm = TRUE, y=t_ccle$UTY)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + geom_jitter(size = 0.75) + geom_hline(yintercept = mean(t_ccle$UTY[t_ccle$Sex == "female"], na.rm = TRUE) + upper_threshold * sd_f_UTY, linetype="dashed", color = "maroon") + geom_hline(yintercept = mean(t_ccle$UTY[t_ccle$Sex == "female"], na.rm = TRUE) + lower_threshold * sd_f_UTY, linetype="dashed", color = "blue")
+
+# EIF1AY
+ggplot(data = t_ccle, aes(x=t_ccle$Sex, fill = t_ccle$Sex, na.rm = TRUE, y=t_ccle$EIF1AY)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + geom_jitter(size = 0.75) + geom_hline(yintercept = mean(t_ccle$EIF1AY[t_ccle$Sex == "female"], na.rm = TRUE) + upper_threshold * sd_f_EIF1AY, linetype="dashed", color = "maroon") + geom_hline(yintercept = mean(t_ccle$EIF1AY[t_ccle$Sex == "female"], na.rm = TRUE) + lower_threshold * sd_f_EIF1AY, linetype="dashed", color = "blue")
+
+# RPS4Y1
+ggplot(data = t_ccle, aes(x=t_ccle$Sex, fill = t_ccle$Sex, na.rm = TRUE, y=t_ccle$RPS4Y1)) + geom_violin(trim = FALSE) + scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9")) + geom_jitter(size = 0.75) + geom_hline(yintercept = mean(t_ccle$RPS4Y1[t_ccle$Sex == "female"], na.rm = TRUE) + upper_threshold * sd_f_RPS4Y1, linetype="dashed", color = "maroon") + geom_hline(yintercept = mean(t_ccle$RPS4Y1[t_ccle$Sex == "female"], na.rm = TRUE) + lower_threshold * sd_f_RPS4Y1, linetype="dashed", color = "blue")
+
+```
