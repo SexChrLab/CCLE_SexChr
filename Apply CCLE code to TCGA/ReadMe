@@ -1,1 +1,4 @@
-
+## READ ME: 
+I noticed that the XIST expressions were not being calculated correctly, So I created this new loop to take into account XX and XY genes differently.
+You can just run this code alone; everything you need to run is included. If you need to adjust the thresholds for your analysis, you have the ability to edit them; the code will still run as expected 
+change the file path to the path you have all your outcomes saved in; just change "TCGA_(cancer type)_sample_XIST-Y_outcomes. tv".- Ilsa 
