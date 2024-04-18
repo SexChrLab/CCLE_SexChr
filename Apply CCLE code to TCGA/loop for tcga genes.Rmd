@@ -1,0 +1,101 @@
+---
+title: "loop for TCGA genes"
+author: "Ilsa Rodriguez"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r}
+
+## READ ME: 
+
+## I noticed that the XIST expressions were not being calculated properly,
+## so I created this new loop to take into account XX and XY genes differently.
+## this new loop should fix that problem that you see above, you can just run this code alone, everything you need to run is included. 
+
+
+# Load your data here, if you want to evaluate a different TCGA cancer type just change the file path to the path you have all your outcomes saved in, 
+# and just change "TCGA_(cancer type)_sample_XIST-Y_outcomes.tsv". 
+
+counts_plus <- read.table(file = "C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/outcomes TCGA/TCGA_LIHC_sample_XIST-Y_outcomes.tsv", sep = '\t', header = TRUE)
+# Initialize a dataframe to store results for all genes
+
+library(ggplot2)
+
+
+#Calling XY and XX genes
+female_genes <- c("XIST")
+male_genes <- c("AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "PRKY", "TMSB4Y", "USP9Y", "UTY", "ZFY", "SRY")
+
+# Initialize a dataframe to store results for all genes
+all_genes_data <- data.frame(RowID = counts_plus$rowname, 
+                             annotated_sex = counts_plus$annotated_sex, 
+                             XIST_status = counts_plus$status_XIST, 
+                             Y_status = counts_plus$status_Y)
+
+for (gene in c(female_genes, male_genes)) {
+  if (gene %in% female_genes) {
+    # Assuming you want to use log1p for female genes
+    gene_expression <- log1p(counts_plus[[gene]]) 
+  } else {
+    # Assuming you want to use  log1p for male genes
+    gene_expression <- log1p(counts_plus[[gene]]) 
+  }
+  gene_expression[is.infinite(gene_expression)] <- NA
+
+  # Set thresholds based on the sex
+  
+  # low thresholds in XY means that it is an XX gene
+  if (gene %in% female_genes) {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + (1.5 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + (0.5 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+
+  
+  } else {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + (4.5 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + (3 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  
+  }
+ 
+
+  # Predict sex based on gene expression thresholds
+ if (gene %in% male_genes) {
+    # For Y chromosome associated genes, higher expression suggests "male"
+    predicted_sex <- ifelse(gene_expression >= high_threshold, "male",
+                            ifelse(gene_expression <= low_threshold, "female", "cannot_predict"))
+  } else {
+    # For X chromosome gene expression, higher expression suggests "female"
+    predicted_sex <- ifelse(gene_expression >= high_threshold, "female",
+                            ifelse(gene_expression <= low_threshold, "male", "cannot_predict"))
+  }
+  # Prepare data for plotting
+  gene_data_for_plot <- data.frame(annotated_sex = counts_plus$annotated_sex, expression = gene_expression)
+
+  p <- ggplot(gene_data_for_plot, aes(x = annotated_sex, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+    geom_jitter(size = 0.75) +
+    ylab(paste0(gene, " Expression (", if(gene %in% female_genes) "log10" else "log", "-transformed)")) +
+    geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") +
+   geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue") +
+    theme_light() 
+     # Change scale if you want log10
+  print(p)
+
+
+  
+  # Add expression data to the dataframe
+  all_genes_data[[paste0(gene, "_expression")]] <- counts_plus[[gene]]
+  all_genes_data[[paste0(gene, "_predicted_sex")]] <- predicted_sex
+  all_genes_data[[paste0(gene, "_predicted_expression")]] <- ifelse(counts_plus[[gene]] >= high_threshold, "high_expression", ifelse(counts_plus[[gene]] <= low_threshold, "low_expression", "intermediate_expression"))
+  
+}
+
+# Save the comprehensive results to a CSV file
+write.csv(all_genes_data, "expression_data_all_genes_with_predicted_sex.csv", row.names = FALSE)
+```
+
