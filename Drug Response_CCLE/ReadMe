@@ -1,1 +1,5 @@
+#CCLE Drug Response Data
 
+##Analysis of drug response in male and female cell lines across expression levels
+
+This code was used to split up the CCLE data into categories of high and low expression for selected genes. The drug responses of these expression levels was graphically evaluated across 24 cancer drugs. This code has been split into two .Rmd files, one for the Y-linked DDX3Y gene, and the other for XIST. The results across all cell lines were shown as violin scatter plots, with each drug type being loaded in sequentially. All code was written in Rstudio.
