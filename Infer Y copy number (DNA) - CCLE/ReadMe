@@ -1,3 +1,7 @@
+# Infer Y copy number (DNA)
+
+## 
+
 CCLE DNA BAM files were pulled down from the Google Cloud bucket they were stored on. Chr X, Y, 8, and 19 alignments were extracted for each cell line.
 Python was used for pulling CCLE DNA BAM files.
 Bash scripts were written for using samtools-1.13-gcc-11.2.0 to index and calculate coverage on cell lines and export to a comma-separated file.
