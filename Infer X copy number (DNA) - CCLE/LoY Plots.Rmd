@@ -1,0 +1,331 @@
+---
+title: "CCLE LoY"
+author: "Teagen Allen"
+date: "2024-07-06"
+output: html_document
+---
+
+Project Overview
+This project analyzes gene expression data from the Cancer Cell Line Encyclopedia (CCLE) and copy number data for sex chromosomes from the paper "Loss of chromosome Y in primary tumors" by Qi et al., 2023. The goal is to explore the relationship between gene expression and the ploidy of sex chromosomes.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries
+The libraries used in this analysis include `ggplot2` for plotting and `readr` for reading CSV files.
+
+```{r libraries}
+library(ggplot2)
+
+```
+
+#### Directories
+Set the working directory and data directory paths.
+
+```{r directories}
+working_directory = "C:/Users/allen/Documents/Coding Projects/R/BIO498_Genomics/CCLE_LOY"  
+
+data_directory = "C:/Users/allen/Documents/Coding Projects/R/BIO498_Genomics/CCLE_LOY/data/"
+
+setwd(working_directory) 
+```
+
+#### Data Loading
+Read the gene expression data and the supplemental table from the CSV files.
+
+```{r data}
+library(readr)
+chrY_gene_expression <- read_csv("chrY_gene_expression_annotated.csv")
+Supplemental_Table <- read_csv("Supplemental_Table_S1_cleaned.csv")
+
+
+```
+#### Data Merging
+Merge the gene expression data with the supplemental table on the `cell_line` column after removing rows with `NA` values in the `cell_line` column.
+
+```{r merge data}
+
+# Drop NA values in the cell_line column
+chrY_gene_expression <- chrY_gene_expression[!is.na(chrY_gene_expression$cell_line), ]
+Supplemental_Table <- Supplemental_Table[!is.na(Supplemental_Table$cell_line), ]
+
+# Perform the merge
+LoY_table_full <- merge(chrY_gene_expression, Supplemental_Table, by = "cell_line")
+
+```
+
+#### Data Cleaning and Subsetting
+Select specific columns from the merged data and exclude the `Chr_Y_gene_expression_PC1` column.
+
+``` {r clean and subset}
+columns_to_keep <- setdiff(grep("expression|cell_line|Biological_sex|Lineage|Age|Y_ploidy|X_ploidy|Genotype", names(LoY_table_full), value = TRUE), "Chr_Y_gene_expression_PC1")
+
+LoY_table <- LoY_table_full[, columns_to_keep]
+
+```
+
+#### Log Transformation
+Perform log transformation on the expression columns to handle log(0) issues.
+
+```{r add log1p transformations to the columns}
+# Identify numeric expression columns
+expression_columns <- grep("expression$", names(LoY_table), value = TRUE)
+
+# Perform log transformation and add new columns
+for (col in expression_columns) {
+    log_col_name <- paste0("log_", col)
+    LoY_table[[log_col_name]] <- log10(LoY_table[[col]])  # log1p is used to avoid log(0) issues
+}
+
+# Display the head of the updated dataframe
+head(LoY_table)
+
+
+```
+
+#### Plotting Gene Expression vs. Y Ploidy (NA Omitted)
+Create function for violin plots for each gene expression variable grouped by Y ploidy, excluding rows with `NA` values.
+
+```{r Function}
+# Function to create violin plots for gene expression variables
+create_gene_violin_plot <- function(data, gene_expression, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  
+  ggplot(data, aes(x = !!sym(ploidy), y = !!sym(gene_expression), fill = !!sym(ploidy))) + 
+    geom_violin() +
+    labs(title = gene_expression) +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA))  # Handle NA values in y-axis labels
+}
+
+```
+
+
+```{r Plot Y Ploidy na.omit}
+# Create violin plots for each gene expression variable
+DDX3Y_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_DDX3Y_expression", "Y_ploidy", remove_na = TRUE)
+EIF1AY_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_EIF1AY_expression", "Y_ploidy", remove_na = TRUE)
+KDM5D_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_KDM5D_expression", "Y_ploidy", remove_na = TRUE)
+NLGN4Y_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_NLGN4Y_expression", "Y_ploidy", remove_na = TRUE)
+RPS4Y1_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_RPS4Y1_expression", "Y_ploidy", remove_na = TRUE)
+TMSB4Y_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_TMSB4Y_expression", "Y_ploidy", remove_na = TRUE)
+USP9Y_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_USP9Y_expression", "Y_ploidy", remove_na = TRUE)
+UTY_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_UTY_expression", "Y_ploidy", remove_na = TRUE)
+ZFY_Yploidy_plot <- create_gene_violin_plot(LoY_table, "log_ZFY_expression", "Y_ploidy", remove_na = TRUE)
+
+# Display the plots
+print(DDX3Y_Yploidy_plot)
+print(EIF1AY_Yploidy_plot)
+print(KDM5D_Yploidy_plot)
+print(NLGN4Y_Yploidy_plot)
+print(RPS4Y1_Yploidy_plot)
+print(TMSB4Y_Yploidy_plot)
+print(USP9Y_Yploidy_plot)
+print(UTY_Yploidy_plot)
+print(ZFY_Yploidy_plot)
+```
+
+```{r Plot Y Ploidy NA Allowed}
+# Create violin plots for each gene expression variable
+DDX3Y_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_DDX3Y_expression", "Y_ploidy", remove_na = FALSE)
+EIF1AY_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_EIF1AY_expression", "Y_ploidy", remove_na = FALSE)
+KDM5D_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_KDM5D_expression", "Y_ploidy", remove_na = FALSE)
+NLGN4Y_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_NLGN4Y_expression", "Y_ploidy", remove_na = FALSE)
+RPS4Y1_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_RPS4Y1_expression", "Y_ploidy", remove_na = FALSE)
+TMSB4Y_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_TMSB4Y_expression", "Y_ploidy", remove_na = FALSE)
+USP9Y_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_USP9Y_expression", "Y_ploidy", remove_na = FALSE)
+UTY_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_UTY_expression", "Y_ploidy", remove_na = FALSE)
+ZFY_Yploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_ZFY_expression", "Y_ploidy", remove_na = FALSE)
+
+# Display the plots
+print(DDX3Y_Yploidy_plot_na)
+print(EIF1AY_Yploidy_plot_na)
+print(KDM5D_Yploidy_plot_na)
+print(NLGN4Y_Yploidy_plot_na)
+print(RPS4Y1_Yploidy_plot_na)
+print(TMSB4Y_Yploidy_plot_na)
+print(USP9Y_Yploidy_plot_na)
+print(UTY_Yploidy_plot_na)
+print(ZFY_Yploidy_plot_na)
+```
+
+```{r Plot X ploidy na.omit} 
+# Create violin plots for each gene expression variable grouped by X_ploidy
+DDX3Y_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_DDX3Y_expression", "X_ploidy", remove_na = TRUE)
+EIF1AY_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_EIF1AY_expression", "X_ploidy", remove_na = TRUE)
+KDM5D_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_KDM5D_expression", "X_ploidy", remove_na = TRUE)
+NLGN4Y_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_NLGN4Y_expression", "X_ploidy", remove_na = TRUE)
+RPS4Y1_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_RPS4Y1_expression", "X_ploidy", remove_na = TRUE)
+TMSB4Y_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_TMSB4Y_expression", "X_ploidy", remove_na = TRUE)
+USP9Y_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_USP9Y_expression", "X_ploidy", remove_na = TRUE)
+UTY_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_UTY_expression", "X_ploidy", remove_na = TRUE)
+ZFY_Xploidy_plot <- create_gene_violin_plot(LoY_table, "log_ZFY_expression", "X_ploidy", remove_na = TRUE)
+
+# Display the plots
+print(DDX3Y_Xploidy_plot)
+print(EIF1AY_Xploidy_plot)
+print(KDM5D_Xploidy_plot)
+print(NLGN4Y_Xploidy_plot)
+print(RPS4Y1_Xploidy_plot)
+print(TMSB4Y_Xploidy_plot)
+print(USP9Y_Xploidy_plot)
+print(UTY_Xploidy_plot)
+print(ZFY_Xploidy_plot)
+```
+
+
+```{r Plot X Ploidy NA Allowed}
+# Create violin plots for each gene expression variable grouped by X_ploidy
+DDX3Y_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_DDX3Y_expression", "X_ploidy", remove_na = FALSE)
+EIF1AY_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_EIF1AY_expression", "X_ploidy", remove_na = FALSE)
+KDM5D_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_KDM5D_expression", "X_ploidy", remove_na = FALSE)
+NLGN4Y_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_NLGN4Y_expression", "X_ploidy", remove_na = FALSE)
+RPS4Y1_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_RPS4Y1_expression", "X_ploidy", remove_na = FALSE)
+TMSB4Y_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_TMSB4Y_expression", "X_ploidy", remove_na = FALSE)
+USP9Y_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_USP9Y_expression", "X_ploidy", remove_na = FALSE)
+UTY_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_UTY_expression", "X_ploidy", remove_na = FALSE)
+ZFY_Xploidy_plot_na <- create_gene_violin_plot(LoY_table, "log_ZFY_expression", "X_ploidy", remove_na = FALSE)
+
+# Display the plots
+print(DDX3Y_Xploidy_plot_na)
+print(EIF1AY_Xploidy_plot_na)
+print(KDM5D_Xploidy_plot_na)
+print(NLGN4Y_Xploidy_plot_na)
+print(RPS4Y1_Xploidy_plot_na)
+print(TMSB4Y_Xploidy_plot_na)
+print(USP9Y_Xploidy_plot_na)
+print(UTY_Xploidy_plot_na)
+print(ZFY_Xploidy_plot_na)
+```
+
+``` {r}
+
+# Function to create violin plots for gene expression variables faceted by lineage
+create_faceted_violin_plot <- function(data, gene_expression, ploidy, facet_var, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  
+  ggplot(data, aes(x = !!sym(ploidy), y = !!sym(gene_expression), fill = !!sym(ploidy))) + 
+    geom_violin() +
+    facet_wrap(vars(!!sym(facet_var))) +
+    labs(title = gene_expression) +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA))  # Handle NA values in y-axis labels
+}
+
+```
+
+```{r Plot X Ploidy na.omit by Lineage}
+# Create faceted violin plots for each gene expression variable grouped by X_ploidy and faceted by lineage
+DDX3Y_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_DDX3Y_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+EIF1AY_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_EIF1AY_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+KDM5D_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_KDM5D_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+NLGN4Y_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_NLGN4Y_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+RPS4Y1_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_RPS4Y1_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+TMSB4Y_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_TMSB4Y_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+USP9Y_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_USP9Y_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+UTY_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_UTY_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+ZFY_Xploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_ZFY_expression", "X_ploidy", "Lineage", remove_na = TRUE)
+
+# Display the plots
+print(DDX3Y_Xploidy_lineage_plot)
+print(EIF1AY_Xploidy_lineage_plot)
+print(KDM5D_Xploidy_lineage_plot)
+print(NLGN4Y_Xploidy_lineage_plot)
+print(RPS4Y1_Xploidy_lineage_plot)
+print(TMSB4Y_Xploidy_lineage_plot)
+print(USP9Y_Xploidy_lineage_plot)
+print(UTY_Xploidy_lineage_plot)
+print(ZFY_Xploidy_lineage_plot)
+```
+
+```{r}
+# Create faceted violin plots for each gene expression variable grouped by Y_ploidy and faceted by lineage
+DDX3Y_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_DDX3Y_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+EIF1AY_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_EIF1AY_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+KDM5D_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_KDM5D_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+NLGN4Y_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_NLGN4Y_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+RPS4Y1_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_RPS4Y1_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+TMSB4Y_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_TMSB4Y_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+USP9Y_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_USP9Y_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+UTY_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_UTY_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+ZFY_Yploidy_lineage_plot <- create_faceted_violin_plot(LoY_table, "log_ZFY_expression", "Y_ploidy", "Lineage", remove_na = TRUE)
+
+# Display the plots
+print(DDX3Y_Yploidy_lineage_plot)
+print(EIF1AY_Yploidy_lineage_plot)
+print(KDM5D_Yploidy_lineage_plot)
+print(NLGN4Y_Yploidy_lineage_plot)
+print(RPS4Y1_Yploidy_lineage_plot)
+print(TMSB4Y_Yploidy_lineage_plot)
+print(USP9Y_Yploidy_lineage_plot)
+print(UTY_Yploidy_lineage_plot)
+print(ZFY_Yploidy_lineage_plot)
+
+
+```
+
+
+```{r ages to decades}
+# Add a new column to bin ages into decades
+LoY_table$Age_bin <- cut(LoY_table$Age, breaks = seq(0, 100, by = 10), right = FALSE, labels = paste(seq(0, 90, by = 10), seq(10, 100, by = 10), sep = "-"))
+
+```
+
+
+
+``` {r}
+# Create violin plots for each gene expression variable grouped by Y_ploidy, faceted by Age
+DDX3Y_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_DDX3Y_expression", "Y_ploidy", "Age_bin")
+EIF1AY_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_EIF1AY_expression", "Y_ploidy", "Age_bin")
+KDM5D_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_KDM5D_expression", "Y_ploidy", "Age_bin")
+NLGN4Y_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_NLGN4Y_expression", "Y_ploidy", "Age_bin")
+RPS4Y1_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_RPS4Y1_expression", "Y_ploidy", "Age_bin")
+TMSB4Y_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_TMSB4Y_expression", "Y_ploidy", "Age_bin")
+USP9Y_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_USP9Y_expression", "Y_ploidy", "Age_bin")
+UTY_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_UTY_expression", "Y_ploidy", "Age_bin")
+ZFY_Yploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_ZFY_expression", "Y_ploidy", "Age_bin")
+
+# Display the plots
+print(DDX3Y_Yploidy_plot_age)
+print(EIF1AY_Yploidy_plot_age)
+print(KDM5D_Yploidy_plot_age)
+print(NLGN4Y_Yploidy_plot_age)
+print(RPS4Y1_Yploidy_plot_age)
+print(TMSB4Y_Yploidy_plot_age)
+print(USP9Y_Yploidy_plot_age)
+print(UTY_Yploidy_plot_age)
+print(ZFY_Yploidy_plot_age)
+
+```
+
+```{r}
+# Create violin plots for each gene expression variable grouped by X_ploidy, faceted by Age
+DDX3Y_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_DDX3Y_expression", "X_ploidy", "Age_bin")
+EIF1AY_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_EIF1AY_expression", "X_ploidy", "Age_bin")
+KDM5D_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_KDM5D_expression", "X_ploidy", "Age_bin")
+NLGN4Y_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_NLGN4Y_expression", "X_ploidy", "Age_bin")
+RPS4Y1_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_RPS4Y1_expression", "X_ploidy", "Age_bin")
+TMSB4Y_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_TMSB4Y_expression", "X_ploidy", "Age_bin")
+USP9Y_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_USP9Y_expression", "X_ploidy", "Age_bin")
+UTY_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_UTY_expression", "X_ploidy", "Age_bin")
+ZFY_Xploidy_plot_age <- create_faceted_violin_plot(LoY_table, "log_ZFY_expression", "X_ploidy", "Age_bin")
+
+# Display the plots
+print(DDX3Y_Xploidy_plot_age)
+print(EIF1AY_Xploidy_plot_age)
+print(KDM5D_Xploidy_plot_age)
+print(NLGN4Y_Xploidy_plot_age)
+print(RPS4Y1_Xploidy_plot_age)
+print(TMSB4Y_Xploidy_plot_age)
+print(USP9Y_Xploidy_plot_age)
+print(UTY_Xploidy_plot_age)
+print(ZFY_Xploidy_plot_age)
+
+```
