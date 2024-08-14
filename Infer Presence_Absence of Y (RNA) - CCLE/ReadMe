@@ -2,8 +2,8 @@
 
 ## Establishing Thresholds for Analysis
 
-This code allows the visualization of expression data in the CCLE. Only cell lines with a reported sex are included in the data. Violin plots with and without thresholds and pie charts for males and females are created. Each cell line is then annotated with "high_expression", "intermediate_expression", or "low_expression" according to the assigned thresholds. This will output as a csv with expression (RNA-seq) counts, log counts, and the expression level. The total output is one violin plot with thresholds image, two pie chart images (one for female, one for male), and one csv file.
+This code allows for the visualization of expression data in the CCLE. Only cell lines with a reported sex are included in the analyzed data. Violin plots with and without thresholds and pie charts for males and females are created. Each cell line is then annotated with "high_expression", "intermediate_expression", or "low_expression" according to the assigned thresholds. This will output as a csv with expression (RNA-seq) counts, log counts, and the expression level. The total output is one violin plot with thresholds image, two pie chart images (one for female, one for male), and one csv file.
 
 **This code is made to run one gene at a time.** To run different Y chromosome genes, change "chosen_gene" under Gene of Interest. This may be used for X chromosome genes as well. Change the chosen_gene and use male mean and standard deviation when calculating thresholds.
 
-*Change* working_directory *and* data_directory *accordingly.*
+*Change* root.dir *and* data_directory *accordingly.*
