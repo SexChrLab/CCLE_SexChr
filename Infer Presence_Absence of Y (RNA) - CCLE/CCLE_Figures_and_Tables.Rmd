@@ -1,0 +1,769 @@
+---
+title: "CCLE Figures and Tables"
+author: "Mariah Lee"
+date: "Last updated `r format(Sys.time(), '%m/%d/%y')`"
+output: 
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 70
+---
+
+# Print Options
+
+```{r setup, include=FALSE}
+# Set the root directory for knitting the document
+knitr::opts_knit$set(root.dir = "D:/CCLE_Project/Stats_and_Figures_output")
+# Set chunk options to improve readability of code output
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+
+# Overview
+
+In this report, we analyze gene expression data from the Cancer Cell Line Encyclopedia (CCLE). We aim to combine, filter, and visualize the data using various statistical and graphical methods. The focus is on generating heat maps and conditional tables to explore sex chromosome complements and gene expression patterns across different cell lines.
+
+# Install and Load Needed Packages
+
+This section installs and loads the necessary R packages required for data manipulation, visualization, and reporting. Packages from both CRAN and Bioconductor are included to cover more functions.
+
+```{r LoadPackages, message=FALSE, warning=FALSE}
+# Define the required packages
+cran_packages <- c("dplyr", "tidyr", "ggplot2", "gt", "webshot2", "stringr")
+bioc_packages <- c("ComplexHeatmap")
+
+# Function to install and load CRAN packages
+install_and_load_cran <- function(packages) {
+  for (pkg in packages) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      install.packages(pkg, dependencies = TRUE)
+    }
+    library(pkg, character.only = TRUE)
+  }
+}
+
+# Function to install and load Bioconductor packages
+install_and_load_bioc <- function(packages) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager", dependencies = TRUE)
+  }
+  for (pkg in packages) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      BiocManager::install(pkg)
+    }
+    library(pkg, character.only = TRUE)
+  }
+}
+
+# Install and load the packages
+install_and_load_cran(cran_packages)
+install_and_load_bioc(bioc_packages)
+```
+
+# Combine Data
+
+This section sources an external script that combines gene count data from various files into a single data frame. The combined data is then used for subsequent analysis.
+
+``` {r CombineData}
+# Run the script that will combine all gene counts
+source("D:/CCLE_Project/scripts/combine_gene_counts.R")
+```
+
+# Set Up Data Directory
+
+This path is used to read and write files throughout the analysis.
+
+``` {r Directories}
+# Directory where the data is stored; include / at the end
+data_dir <- "D:/CCLE_Project/data/"
+```
+
+# Read Data
+
+This section reads the combined gene expression data and gene locations data into R for further processing and analysis.
+
+```{r ImportData}
+# Read the combined gene expression data into a variable
+gene_data <- read.csv(paste0(data_dir, "CCLE_all_combined_gene_expression.csv"), 
+                      header = TRUE)
+
+# Change NA in reported_sex to "Unknown" for accurate labeling
+gene_data$reported_sex[is.na(gene_data$reported_sex)] <- "unknown"
+
+# Read the annotation data
+annotation_data <- read.csv(paste0(
+  data_dir,"Cell_lines_annotations_20181226.txt"), header = TRUE, sep = "\t")
+
+# This csv has the location of the chromosome each of the genes are on, and is
+# used to divide the heat map by location and position
+gene_locations <- read.csv(paste0(data_dir, "gene_locations.csv"), header = TRUE)
+
+# Remove AMELY from gene_locations because there is no data for females
+gene_locations <- gene_locations %>%
+  filter(gene_name != "AMELY")
+```
+
+# Heat Maps
+
+This section generates heat maps to visualize the gene expression levels across different cell lines. Heat maps are divided based on reported sex and gene locations.
+
+## Complete heat map
+
+The complete heat map shows the log expression levels of all genes across all cell lines, ordered by their locations on their respective chromosomes.
+
+```{r CompleteHeatMap}
+# Order the data by gene expression levels
+heat_data <- gene_data %>%
+  arrange(across(contains("_expression_level"), 
+                 ~ factor(., levels = c("high_expression", 
+                                        "intermediate_expression", 
+                                        "low_expression"))))
+
+# Filter out everything but the log columns
+heat_matrix <- as.matrix(heat_data %>%
+  select(contains("_log_expression")))
+
+# Transpose the matrix so genes are on the rows and cell lines are on the columns
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names for display
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Split the columns based on reported sex
+reported_sex <- heat_data$reported_sex
+
+# Gene locations will split the rows by chromosome and chromosome Y arm
+locate_gene <- gene_locations$location
+
+gene_heatmap <- suppressMessages(Heatmap(heat_matrix,
+                         name = "Log Expression",
+                         col = c("royalblue3","white", "red"),
+                         row_names_side = "left",
+                         cluster_rows = FALSE,
+                         row_split = locate_gene,
+                         column_title_side = "bottom",
+                         cluster_columns = FALSE,
+                         show_column_dend = FALSE,
+                         column_split = reported_sex,
+                         column_gap = unit(3,"mm"),
+                         ))
+# Save image of the complete heat map as SVG
+svg("CCLE_complete_heat_map.svg", width = 10, height = 10)
+print(gene_heatmap)
+dev.off()
+
+gene_heatmap
+```
+
+## Chosen genes heat map
+
+This heat map focuses on a subset of genes that are of particular interest. The genes are selected based on their bimodel expression levels.
+
+```{r RefinedHeat}
+# Define the chosen genes
+chosen_genes <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Filter data to only include chosen genes
+selected_columns <- c("cell_line", "reported_sex")
+
+# Loop through chosen_genes to add corresponding column names
+for (gene in chosen_genes) {
+  selected_columns <- c(selected_columns, 
+                        grep(paste0("^", gene, "_log_expression$"), 
+                             colnames(heat_data), value = TRUE))
+  }
+
+# Subset heat_data using the selected column names
+heat_refined <- heat_data %>%
+  select(all_of(selected_columns))
+
+# Convert to matrix
+refined_matrix <- as.matrix(heat_refined %>%
+  select(contains("_log_expression")))
+
+# Transpose the matrix so genes are on the rows and cell lines are on the columns
+refined_matrix <- t(refined_matrix)
+
+# Remove "_log_expression" from row names for display
+row.names(refined_matrix) <- gsub("_log_expression", "", row.names(refined_matrix))
+colnames(refined_matrix) <- NULL
+
+# Update refined_sex to match the subset of heat_refined
+refined_sex <- heat_refined$reported_sex
+
+# Update gene_locations for chosen genes
+refined_locations <- gene_locations %>%
+  filter(gene_name %in% chosen_genes)
+refined_locate <- refined_locations$location
+
+refined_heatmap <- suppressMessages(Heatmap(refined_matrix,
+                         name = "Log Expression",
+                         col = c("royalblue3","white", "red"),
+                         row_names_side = "left",
+                         cluster_rows = FALSE,
+                         row_split = refined_locate,
+                         column_title_side = "bottom",
+                         cluster_columns = FALSE,
+                         show_column_dend = FALSE,
+                         column_split = refined_sex,
+                         column_gap = unit(3,"mm"),
+                         ))
+
+# Save image of the refined heat map as SVG
+svg("CCLE_refined_heat_map.svg", width = 10, height = 10)
+print(refined_heatmap)
+dev.off()
+
+refined_heatmap
+```
+
+# Filtering Data
+
+In this section, we filter and subset the data based on specific criteria such as reported sex and gene expression levels. We also handle missing values and prepare data subsets for females, males, and unknown reported sex.
+
+```{r SubsetData}
+# Loop through chosen_genes to add corresponding column names for counts and expression levels
+for (gene in chosen_genes) {
+  selected_columns <- c(selected_columns, 
+                        grep(paste0("^", gene, "_log_expression$"), 
+                             colnames(gene_data), value = TRUE),
+                        grep(paste0("^", gene, "_expression_level$"), 
+                             colnames(gene_data), value = TRUE))
+}
+
+# Subset gene_data using the selected column names
+filtered_data <- gene_data %>%
+  select(all_of(selected_columns))
+
+# Change NA in reported_sex to "unknown" for accurate labeling
+filtered_data$reported_sex[is.na(filtered_data$reported_sex)] <- "unknown"
+```
+
+# Combined violin plot
+
+A combined figure with the RNA-Seq counts of all of the sex chromosome genes we've looked into.
+
+## All genes
+
+```{r AllViolin}
+# Transform the data into long format and filter out unknown sex
+gene_data_long <- gene_data %>%
+  pivot_longer(
+    cols = ends_with("log_expression"),
+    names_to = "gene",
+    values_to = "log_expression"
+  ) %>%
+  mutate(gene = gsub("_log_expression", "", gene)) %>%
+  filter(!is.na(log_expression), reported_sex != "unknown") %>%
+  mutate(gene = factor(gene, levels = gene_locations$gene_name))
+
+# Create the violin plot with proper jitter
+all_plot <- ggplot(gene_data_long, 
+                   aes(x = gene, 
+                       y = log_expression, 
+                       fill = reported_sex)) +
+  geom_violin(trim = FALSE) + 
+  geom_jitter(aes(color = reported_sex), 
+              size = 0.5, 
+              position = position_jitterdodge(dodge.width = 0.8)) + 
+  theme_minimal() +
+  labs(x = "Gene", 
+       y = "Log Expression", 
+       fill = "Sex", color = "Sex") +
+  theme(axis.text.x = element_text(angle = 90, 
+                                   vjust = 0.5, hjust=1)) +
+  scale_fill_manual(values = c("female" = "grey", "male" = "orange")) +
+  scale_color_manual(values = c("female" = "black", "male" = "black"))
+
+# Save the plot as an SVG
+ggsave("gene_violin_all.svg", 
+       plot = all_plot, 
+       width = 10, height = 6, dpi = 300, bg = "white", device = "svg")
+
+all_plot
+```
+
+## Filtered genes
+
+```{r FilteredViolin}
+# Transform the data into long format and filter out unknown sex
+filtered_data_long <- filtered_data %>%
+  pivot_longer(
+    cols = ends_with("log_expression"),
+    names_to = "gene",
+    values_to = "log_expression"
+  ) %>%
+  mutate(gene = gsub("_log_expression", "", gene)) %>%
+  filter(!is.na(log_expression), reported_sex != "unknown") %>%
+  mutate(gene = factor(gene, levels = gene_locations$gene_name))
+
+# Determine the position of the separator line
+separator_position <- which(levels(filtered_data_long$gene) == "XIST") + 0.5
+
+# Create the violin plot with proper jitter and a separator line
+filtered_plot <- ggplot(filtered_data_long, 
+               aes(x = gene, 
+                   y = log_expression, 
+                   fill = reported_sex)) +
+  geom_violin(trim = FALSE) + 
+  geom_jitter(aes(color = reported_sex), 
+              size = 0.25, 
+              position = position_jitterdodge(dodge.width = 0.8)) + 
+  geom_vline(xintercept = separator_position, 
+             linetype = "dashed", 
+             color = "gray", size = 1) +
+  theme_minimal() +
+  labs(x = "Gene", 
+       y = "Log Expression", 
+       fill = "Sex", color = "Sex") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_fill_manual(values = c("female" = "grey", "male" = "orange")) +
+  scale_color_manual(values = c("female" = "black", "male" = "black"))
+
+# Save the filtered plot as an SVG
+ggsave("gene_violin_filtered_with_separator.svg", 
+       plot = filtered_plot, 
+       width = 10, height = 6, dpi = 300, bg = "white", device = "svg")
+
+filtered_plot
+```
+
+# Conditional Table
+
+This section generates a table displaying the sex chromosome complements of the cell lines based on the gene expression patterns. The table provides insights into the sex chromosome gene expression among different cell lines.
+
+## Define the expression levels columns and generate the table
+
+```{r ExpressionLevels, echo=TRUE}
+# Define the expression levels columns for chrY genes
+chrY_gene_expression_level <- c("RPS4Y1_expression_level", 
+                                "ZFY_expression_level", 
+                                "USP9Y_expression_level", 
+                                "DDX3Y_expression_level", 
+                                "UTY_expression_level", 
+                                "KDM5D_expression_level", 
+                                "EIF1AY_expression_level")
+
+# Function to generate the table for a given subset of data
+generate_table <- function(data, label) {
+  total_count <- nrow(data)
+  
+  # high expression of XIST and low expression of all chrY genes [XaXa]
+  highXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "high_expression" &
+             all(c_across(all_of(chrY_gene_expression_level)) == "low_expression")) %>%
+    nrow()
+  
+  # intermediate XIST and low chrY expression [XaXa]
+  interXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "intermediate_expression" &
+             all(c_across(all_of(chrY_gene_expression_level)) == "low_expression")) %>%
+    nrow()
+  
+  # low XIST and chrY expression [XaXi or XO]
+  lowXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "low_expression" &
+             all(c_across(all_of(chrY_gene_expression_level)) == "low_expression")) %>%
+    nrow()
+  
+  # at least one instance of high chrY gene expression
+    # low XIST [XY or XaXiY]
+    lowXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "low_expression" &
+             any(c_across(all_of(chrY_gene_expression_level)) == "high_expression")) %>%
+    nrow()
+      
+    # intermediate XIST [XaXaY]
+    interXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "intermediate_expression" &
+             any(c_across(all_of(chrY_gene_expression_level)) == "high_expression")) %>%
+    nrow()
+      
+    # high XIST [XaXaY]
+    highXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "high_expression" &
+             any(c_across(all_of(chrY_gene_expression_level)) == "high_expression")) %>%
+    nrow()
+  
+  # no high chrY expression, but not all low (there's an intermediate)
+    # low XIST
+    lowXIST_interY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "low_expression" &
+             all(c_across(all_of(chrY_gene_expression_level)) != "high_expression") &
+             any(c_across(all_of(chrY_gene_expression_level)) == "intermediate_expression")) %>%
+    nrow()
+      
+    # intermediate XIST
+    interXIST_interY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "intermediate_expression" &
+             all(c_across(all_of(chrY_gene_expression_level)) != "high_expression") &
+             any(c_across(all_of(chrY_gene_expression_level)) == "intermediate_expression")) %>%
+    nrow()
+  
+    # high XIST
+    highXIST_interY <- data %>%
+    rowwise() %>%
+    filter(XIST_expression_level == "high_expression" &
+             all(c_across(all_of(chrY_gene_expression_level)) != "high_expression") &
+             any(c_across(all_of(chrY_gene_expression_level)) == "intermediate_expression")) %>%
+    nrow()
+    
+  table_titles <- c("High XIST and low Y chromosome", 
+                           "Intermediate XIST and low Y chromosome",
+                           "Low XIST and low Y chromosome",
+                           "Low XIST and high Y chromosome", 
+                           "Intermediate XIST and high Y chromosome", 
+                           "High XIST and high Y chromosome",
+                           "Low XIST and intermediate Y chromosome",
+                           "Intermediate XIST and intermediate Y chromosome",
+                           "High XIST and intermediate Y chromosome")
+      
+  sex_chrom_complements <- c("XX", "XX", "XX or X0",
+                             "XY","XXY","XXY",
+                             "XY", "XXY", "XXY")
+  
+  table <- data.frame(
+    Sex = label,
+    Expression = table_titles,
+    Count = c(highXIST_lowY, interXIST_lowY, lowXIST_lowY, 
+              lowXIST_highY, interXIST_highY, highXIST_highY,
+              lowXIST_interY, interXIST_interY, highXIST_interY),
+    Complements = sex_chrom_complements
+  )
+  return(list(table = table, total_count = total_count))
+}
+```
+
+## Filter data and generate tables for each subset
+
+```{r FilterTable}
+# Filter data to include only female, male, and unknown cell lines
+female_data <- filtered_data %>% filter(reported_sex == "female")
+male_data <- filtered_data %>% filter(reported_sex == "male")
+unknown_data <- filtered_data %>% filter(reported_sex == "unknown")
+
+# Generate tables for each subset
+female_result <- generate_table(female_data, "Female")
+male_result <- generate_table(male_data, "Male")
+unknown_result <- generate_table(unknown_data, "Unknown")
+
+# Combine the tables
+combined_table <- rbind(female_result$table, 
+                        male_result$table, 
+                        unknown_result$table)
+
+# Create a data frame with total counts for each sex
+total_counts <- data.frame(
+  Sex = c("Female", "Male", "Unknown"),
+  Total_Count = c(female_result$total_count, 
+                  male_result$total_count, 
+                  unknown_result$total_count)
+)
+
+# Combine the tables and prepare the summary rows
+combined_with_totals <- combined_table %>%
+  bind_rows(
+    # Add total rows with distinct labeling
+    data.frame(
+      Sex = c(rep("Female", 1), rep("Male", 1), rep("Unknown", 1)),
+      Expression = "Total",
+      Count = c(total_counts$Total_Count[1], 
+                total_counts$Total_Count[2], 
+                total_counts$Total_Count[3]),
+      Complements = ""
+    )
+  ) %>%
+  # Ensure proper ordering
+  mutate(Sex = factor(Sex, levels = c("Female", "Male", "Unknown"))) %>%
+  arrange(Sex, Expression)
+```
+
+## Create the compiled table and save
+
+```{r CreateandSave}
+# Create the GT table
+gt_table <- combined_with_totals %>%
+  gt() %>%
+  tab_header(
+    title = "Gene Expression Summary by Sex"
+  ) %>%
+  fmt_number(
+    columns = c("Count"),
+    decimals = 0
+  ) %>%
+  cols_label(
+    Sex = "Sex",
+    Expression = "Expression Pattern",
+    Count = "Count",
+    Complements = "Complements"
+  ) %>%
+  # Create row groups including total rows
+  tab_row_group(
+    group = "Female",
+    rows = which(combined_with_totals$Sex == "Female")
+  ) %>%
+  tab_row_group(
+    group = "Male",
+    rows = which(combined_with_totals$Sex == "Male")
+  ) %>%
+  tab_row_group(
+    group = "Unknown",
+    rows = which(combined_with_totals$Sex == "Unknown")
+  ) %>%
+  # Style the row group headers to be bold
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  ) %>%
+  fmt_missing(
+    columns = c("Count", "Complements"),
+    missing_text = "N/A"
+  ) %>%
+  cols_align(
+    align = "left",
+    columns = c("Expression", "Complements")
+  ) %>%
+  # Remove the Sex column from being repetitive
+  cols_hide(columns = "Sex") %>%
+  row_group_order(groups = c("Female", "Male", "Unknown"))
+
+# Save the combined table with totals as a CSV file
+write.csv(combined_with_totals, "CCLE_sex_chromosome_complements.csv", 
+          row.names = FALSE)
+
+# Save the GT table as an HTML file
+gtsave(gt_table, "gt_table.html")
+
+# First, convert the HTML to a temporary PNG
+webshot("gt_table.html", "CCLE_sex_chromosome_complements.png", 
+        vwidth = 1000, vheight = 600)
+
+# Display the table
+print(gt_table)
+```
+
+# Individual cell line sex chromosome complements
+
+This will output a csv that has the inferred sex chromosome complement of each cell line in the CCLE.
+
+```{r CellLineTable}
+# Define the list of Y chromosome genes
+y_genes <- c("RPS4Y1_expression_level", "ZFY_expression_level", 
+             "USP9Y_expression_level", "DDX3Y_expression_level", 
+             "UTY_expression_level", "KDM5D_expression_level", 
+             "EIF1AY_expression_level")
+
+# Function to determine Y chromosome expression level
+determine_y_expression <- function(...) {
+  expressions <- list(...)
+  if (all(expressions == "low_expression")) {
+    return("low_expression")
+  } else if (any(expressions == "high_expression")) {
+    return("high_expression")
+  } else {
+    return("intermediate_expression")
+  }
+}
+
+# Apply the function to determine Y chromosome expression level
+filtered_data <- filtered_data %>%
+  rowwise() %>%
+  mutate(Y_expression = determine_y_expression(!!!syms(y_genes)))
+
+# Function to determine the number of X chromosomes
+determine_x_chromosome <- function(x_expression) {
+  if (x_expression == "low_expression") {
+    return("1")
+  } else if (x_expression == "high_expression") {
+    return("2")
+  } else {
+    return("some_inactivation")
+  }
+}
+
+# Function to determine the presence of Y chromosome
+determine_y_chromosome <- function(y_expression) {
+  if (y_expression == "low_expression") {
+    return("0")
+  } else if (y_expression == "high_expression") {
+    return("1")
+  } else {
+    return("reduced_expression")
+  }
+}
+
+# Function to determine the sex chromosome complement
+determine_sex_chromosome_complement <- function(x_chromosome, y_chromosome, xist_expression) {
+  # Convert to numeric values for replication
+  x_chromosome_num <- as.integer(x_chromosome)
+  y_chromosome_num <- as.integer(y_chromosome)
+  
+  # Check for valid numeric values
+  if (is.na(x_chromosome_num)) x_chromosome_num <- 0
+  if (is.na(y_chromosome_num)) y_chromosome_num <- 0  
+  
+  # Determine complement based on chromosome counts
+  if (y_chromosome == "reduced_expression") {
+    if (xist_expression %in% c("high_expression", "some_inactivation")) {
+      return("XXY")
+    } else {
+      return("XY")
+    }
+  } else {
+    if (x_chromosome == "some_inactivation" && y_chromosome == "0") {
+      return("XX")
+    } else if (x_chromosome == 2 && y_chromosome == 1) {
+      return("XXY")
+    } else {
+      if (x_chromosome_num == 1 && y_chromosome_num == 0) {
+        return("X0")
+      } else {
+        return(paste0(rep("X", x_chromosome_num), 
+                      rep("Y", y_chromosome_num), 
+                      collapse = ""))
+      }
+    }
+  }
+}
+
+# Apply the functions to determine X and Y chromosome counts and sex chromosome complement
+complement_data <- filtered_data %>%
+  mutate(X_chromosome = determine_x_chromosome(XIST_expression_level),
+         Y_chromosome = determine_y_chromosome(Y_expression),
+         sex_chromosome_complement = determine_sex_chromosome_complement(
+           X_chromosome, Y_chromosome, XIST_expression_level)) %>%
+  select(cell_line, reported_sex, sex_chromosome_complement,
+         XIST_expression = XIST_expression_level, Y_expression, 
+         X_chromosome, Y_chromosome)
+
+# Remove leading 'X' from cell_line names in complement_data
+complement_data <- complement_data %>%
+  mutate(cell_line = gsub("^X", "", cell_line))
+
+# Save the complement_data to a CSV file
+write.csv(complement_data, file = "ccle_complements.csv", row.names = FALSE)
+```
+
+# Pie Charts
+
+The pie charts will visualize the data of the comprehensive table.
+
+```{r PreProcessing}
+# Filter female data and remove the total row
+female_pie_data <- combined_with_totals %>%
+  filter(Sex == "Female" & Expression != "Total") %>%
+  mutate(Percent = round((Count / sum(Count)) * 100, 1))
+
+# Filter male data and remove the total row
+male_pie_data <- combined_with_totals %>%
+  filter(Sex == "Male" & Expression != "Total") %>%
+  mutate(Percent = round((Count / sum(Count)) * 100, 1))
+```
+
+## Cell lines from females
+
+```{r FemalePieChart}
+# Define colors for the pie chart
+pie_colors_female <- c("gray", "gray","palegreen3", 
+                       "gray","gray", "mediumpurple1", 
+                       "gray","gray","cornflowerblue")    
+
+# Add Complements column to female_pie_data
+female_pie_data$Complements <- c("XaXiY",
+                                 "cannot determine",
+                                 "High XIST - XaXi",
+                                 "XXY or XY",
+                                 "cannot determine",
+                                 "Decreased X inactivation",
+                                 "XaXaY",
+                                 "cannot determine",
+                                 "No inactivation - XaXa or Xa0")
+
+female_pie_chart <- ggplot(female_pie_data, 
+                           aes(x = "", y = Percent, fill = Expression)) +
+  geom_col(color = "black") +
+  coord_polar("y") +
+  geom_text(aes(
+    label = str_wrap(ifelse(Percent >= 20, 
+                   paste(Complements, " - ", Percent, "%"), 
+                   ""), 22)),
+    position = position_stack(vjust = 0.5),
+    fontface = "bold") +
+  labs(x = NULL, y = NULL, fill = "Expression Levels", 
+       title = "Gene Expression of Reported Females") +
+  scale_fill_manual(values = pie_colors_female) +
+  theme_classic() +
+  theme(axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+print(female_pie_chart)
+
+# Save female pie chart as SVG
+ggsave(filename = "female_pie_chart.svg", plot = female_pie_chart, 
+       width = 7, height = 5, units = "in", device = "svg")
+```
+
+## Cell lines from males
+
+```{r MalePieChart}
+# Define colors for the pie chart
+pie_colors_male <- c("gray", "gray","gray", 
+                       "gray","gray", "gray", 
+                       "palegreen3","mediumpurple1","cornflowerblue")    
+
+# Add Complements column to female_pie_data
+male_pie_data$Complements <- c("XaXiY",
+                               "cannot determine",
+                               "High XIST - XaXi",
+                               "XXY or XY",
+                               "cannot determine",
+                               "Decreased X inactivation",
+                               "XY",
+                               "XY or X0",
+                               "X0")
+
+male_pie_chart <- ggplot(male_pie_data, 
+                         aes(x = "", y = Percent, fill = Expression)) +
+  geom_col(color = "black") +
+  coord_polar("y") +
+  geom_text(aes(
+    label = str_wrap(ifelse(Percent >= 20, 
+                   paste(Complements, " - ", Percent, "%"), 
+                   ""), 22)),
+    position = position_stack(vjust = 0.5),
+    fontface = "bold") +
+  labs(x = NULL, y = NULL, fill = "Expression Levels", 
+       title = "Gene Expression of Reported Males") +
+  scale_fill_manual(values = pie_colors_male) +
+  theme_classic() +
+  theme(axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+print(male_pie_chart)
+
+# Save male pie chart as SVG
+ggsave(filename = "male_pie_chart.svg", plot = male_pie_chart, 
+       width = 7, height = 5, units = "in", device = "svg")
+```
+
+# Session Information
+
+The following R version and packages were used to generate these visuals.
+
+```{r SessionInfo}
+sessionInfo()
+```
