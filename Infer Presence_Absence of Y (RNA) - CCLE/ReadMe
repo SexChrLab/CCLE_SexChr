@@ -2,8 +2,35 @@
 
 ## Establishing Thresholds for Analysis
 
-This code allows for the visualization of expression data in the CCLE. Only cell lines with a reported sex are included in the analyzed data. Violin plots with and without thresholds and pie charts for males and females are created. Each cell line is then annotated with "high_expression", "intermediate_expression", or "low_expression" according to the assigned thresholds. This will output as a csv with expression (RNA-seq) counts, log counts, and the expression level. The total output is one violin plot with thresholds image, two pie chart images (one for female, one for male), and one csv file.
+This code allows for the visualization of expression data in the CCLE. Only cell lines with a reported sex are included in the analyzed data. Violin plots with and without thresholds and pie charts for males and females are created. Each cell line is then annotated with "high_expression," "intermediate_expression," or "low_expression" according to the assigned thresholds. This will be output as a CSV with expression (RNA-seq) counts, log counts, and the expression level. The total output is one violin plot (with thresholds) image, two pie chart images (one for female, one for male), and one CSV file.
 
 **This code is made to run one gene at a time.** To run different Y chromosome genes, change "chosen_gene" under Gene of Interest. This may be used for X chromosome genes as well. Change the chosen_gene and use male mean and standard deviation when calculating thresholds.
 
 *Change* root.dir *and* data_directory *accordingly.*
+
+
+# CCLE- Figures and Tables
+
+## Combining Gene Counts
+
+This utilizes the combine_gene_counts.R script to compile all of the expression data from various genes.
+
+## Visualizing Expression Counts
+
+Heatmaps, violin plots, and pie charts are used to visualize the count data for each of our genes.
+
+## Expression to the sec chromosome complement
+
+Utilizing the established thresholds, we give complements to each cell line. The expression levels of the Y chromosome genes were combined to create one expression level of Y. The method to decide the expression of Y is determined below:
+  * High expression of Y is decided if at least one gene is classified as "high_expression"
+  * Low expression of Y is decided when all of our chosen Y genes are classified as "low_expression"
+  * Intermediate expression of Y is decided when there is any combination of intermediate and low expression of the chromosome Y genes.
+
+Intermediate values create the following chromosome complement:
+
+  * Intermediate expression of XIST represents some inactivation of the X chromosome. The X chromosome can escape inactivation completely or in part. This is why we've designated cell lines with intermediate XIST expression as having two X chromosomes.
+  * Intermediate expression of Y represents a reduction of expression or partial loss of Y. We have determined this as evidence of a Y chromosome.
+
+## Outputs
+
+The outputs are two heatmaps, two combined violin plots, two pie charts (one for females, one for males), one comprehensive table that summarizes the sex chromosome complements, and a CSV that assigns a sex chromosome complement to each cell line in the CCLE.
