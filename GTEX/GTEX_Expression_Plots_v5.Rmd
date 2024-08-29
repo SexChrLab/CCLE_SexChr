@@ -1,0 +1,276 @@
+---
+title: "GTEX_Expression_Plots_v5"
+author: "Malli Swamy"
+date: "2024-08-29"
+output: html_document
+---
+
+## Objective 
+The purpose of this code is to download source data from the Adult GTEx project 
+website and create violin plots of RNA expression for 16 genes across 54 tissue 
+types, differentiated between male and female subjects. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Printoptions}
+
+# This will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 45), tidy = TRUE)
+```
+
+## Libraries
+```{r Libraries}
+# Check if the package has been installed
+# If not, install it
+if(!require(ggplot2)){
+    install.packages("ggplot2")
+}
+if(!require(UpSetR)){
+    install.packages("UpSetR")
+}
+if(!require(tinytex)){
+    install.packages("tinytex")
+    tinytex::install_tinytex()
+}
+
+if(!require("BiocManager")) {
+    install.packages("BiocManager")
+}
+
+if(!require(readr)) {
+    install.packages("readr")
+}
+
+if(!require(dplyr)) {
+  install.packages("dplyr")
+}
+
+if(!require(patchwork)) {
+  install.packages("patchwork")
+}
+
+# Load packages for use
+library(ggplot2)
+library(UpSetR)
+library(tinytex)
+library(cmapR)
+library(BiocManager)
+library(readr)
+library(dplyr)
+library(stringr)
+library(patchwork)
+library(cowplot)
+
+```
+
+## Set working and data directories
+```{r Set working and data directories}
+
+working_directory = "~/WilsonLab/Projects/GTEX/Data/"
+  setwd(working_directory)
+
+data_directory = "~/WilsonLab/Projects/GTEX/Data/"
+```
+
+## Load data files
+Note: Due to excessive knitting times, the original dataset containing RNA
+expression data ("GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_tpm.gct", 
+named here as "GTEX_GeneTPM") has been copied and subsetted in a new dataframe to 
+only include relevant gene data ("GeneTPM_Subset.csv") using the following code: 
+
+GeneTPM_Subset <- GTEX_GeneTPM[GTEX_GeneTPM$Description %in% c("XIST","SRY","RPS4Y1","ZFY",
+"TGIF2LY","PCDH11Y","AMELY","TBL1Y","USP9Y","DDX3Y","UTY","TMSB4Y","NLGN4Y","KDM5D",
+"EIF1AY","RPS4Y2"), ]
+
+write.table(GeneTPM_Subset, file = "GeneTPM_Subset.csv",
+            sep = "\ t ", row.names = F)
+
+```{r Load data files}
+
+# Load the GTEX sample attributes metadata CSV
+GTEX_MetaSampleAtt = read.csv(paste0(data_directory,
+  "GTEx_Analysis_v8_Annotations_SampleAttributesDD.csv"), header = TRUE)
+
+# Load the GTEX sample attributes CSV
+GTEX_SampleAtt = read.csv(paste0(data_directory,
+  "GTEx_Analysis_v8_Annotations_SampleAttributesDS.csv"), header = TRUE)
+
+# Load the GTEX subject phenotypes metadata CSV
+GTEX_MetaSubPhen = read.csv(paste0(data_directory,
+  "GTEx_Analysis_v8_Annotations_SubjectPhenotypesDD.csv"), header = TRUE)
+
+# Load the GTEX subject phenotypes CSV
+GTEX_SubPhen = read.csv(paste0(data_directory,
+  "GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.csv"), header = TRUE)
+
+Sys.setenv("VROOM_CONNECTION_SIZE" = 2500000) # Increase buffer size
+
+# Load gene TPM subset
+GeneTPM_Subset = read.delim(paste0(data_directory,"GeneTPM_Subset.csv"))
+
+```
+
+## Organizing supplementary files
+Part 1: First looking at GTEX_SampleAtt, the key columns of interest are "SAMPID" for all sample IDs and "SMTSD" for corresponding tissue types. Will pull out these columns, turn them into vectors, and make a new dataframe SampleAttCopy. 
+ 
+Part 2: Next looking at GTEX_SubPhen, the key columns of interest are "SUBJID" for subject IDs and "SEX" for corresponding sex. Will also pull out these columns, turn them into vectors, and make a new dataframe SubPhenCopy. 
+``` {r Organizing supplementary files}
+#Part 1
+# First turn the sample IDs from GTEX_SampleAtt into a vector
+sampIdVector <- as.vector(GTEX_SampleAtt$SAMPID)
+
+# Remove "-" from ID values vector
+sampIdVector <- gsub("-","",sampIdVector) # Remove hyphens
+
+# Then turn tissue assignments into a vector 
+sampTissueVector <- as.vector(GTEX_SampleAtt$SMTSD)
+
+# Make a new dataframe consisting of sample IDs and tissues 
+SampleAttCopy <- data.frame(sampIdVector, sampTissueVector)
+
+# Part 2
+# First turn the subject IDs from GTEX_SubPhen into a vector
+subjIdVector <- as.vector(GTEX_SubPhen$SUBJID)
+
+# Remove "GTEX" and "-" from ID values vector
+subjIdVector <- gsub("GTEX","",subjIdVector)
+subjIdVector <- gsub("-","",subjIdVector)
+
+# Then turn sex assignments in GTEX_SubPhen into a vector
+sexVector <- as.vector(GTEX_SubPhen$SEX)
+
+# Make a new dataframe consisting of ID and Sex vectors from GTEX_SubPhen
+SubPhenCopy <- data.frame(subjIdVector, sexVector)
+
+```
+
+## Gene of Interest Analysis
+Part 1 Gene Data Overview: For a chosen gene, pull the sample ID and expression data from GTEX_GeneTPM (chosenGeneSubset), turn them into vectors, and store them in a new dataframe chosenGeneData. From chosenGeneSubset, pull out relevant characters for subject ID, save as a new vector, and add as a new column to chosenGeneData. 
+
+Part 2 Merging Overview: The goal is to connect subject ID-linked sex data from SubPhenCopy and sample ID-linked tissue data from SampleAttCopy to the chosen gene data, and ultimately have everything in one dataframe. First, will merge gene subject IDs with sex data to make mergedGeneSex and save gene sex data as a vector; then will merge gene sample IDs with tissue data to make mergedGeneTissue; finally add gene sex data vector to mergedGeneTissue and rename as mergedGeneFinal. 
+``` {r Gene of Interest Analysis}
+# Part 1
+
+geneNames <- c("XIST","SRY","RPS4Y1","ZFY","TGIF2LY","PCDH11Y","AMELY","TBL1Y","USP9Y",
+               "DDX3Y","UTY","TMSB4Y","NLGN4Y","KDM5D","EIF1AY","RPS4Y2")
+
+# Then create a loop using the string to input each gene name to the chosen gene section
+for(i in geneNames) {
+
+# Specify chosen gene
+chosenGene <- i
+#chosenGene = "RPS4Y1"
+
+# Subset chosen gene data from GeneTPM_Subset
+chosenGeneSubset = subset(GeneTPM_Subset, Description == chosenGene)
+
+# Remove the first two columns (Name and Description) 
+# since we are only want to plot expression data values
+chosenGeneSubset = subset(chosenGeneSubset, select = -c(1,2))
+
+# Transpose chosenGeneSubset so Sample IDs change from column headers to rows
+chosenGeneSubset = as.data.frame(t(chosenGeneSubset))
+
+# Convert sample ID rownames in chosenGeneSubset to a new column "SampleID"
+chosenGeneSubset <- tibble::rownames_to_column(chosenGeneSubset, "SampleID")
+ 
+# Set second column name to "Expression"
+colnames(chosenGeneSubset)[2] = "Expression"
+
+# Log transform Expression data 
+chosenGeneSubset <- chosenGeneSubset %>%
+	mutate(logExpression = log(Expression+1))
+ 
+# Save chosen gene expression data as a vector
+geneExpressionVector <- as.vector(chosenGeneSubset$logExpression)
+
+# Save gene sample ID as a vector and remove periods
+geneSampleIdVector <- as.vector(chosenGeneSubset$SampleID)
+geneSampleIdVector <- gsub(".","",geneSampleIdVector, fixed=TRUE)
+
+# In chosenGeneSubset make a new column "SubjID" consisting of the 5 character 
+# subject ID(characters 6-10 in SampleID)  
+chosenGeneSubset$SubjID <- str_sub(chosenGeneSubset$SampleID, 6,10)
+
+# Save gene subject IDs from chosenGeneSubset into a vector and remove periods
+geneSubjIdVector <- as.vector(chosenGeneSubset$SubjID)
+geneSubjIdVector <- gsub(".","",as.character(geneSubjIdVector), fixed=TRUE) 
+
+# Make new dataframe chosenGeneData consisting of chosen gene sample ID, subject ID, 
+# and expression vectors
+chosenGeneData <- data.frame(geneSampleIdVector, geneSubjIdVector, geneExpressionVector)
+
+# Part 2 
+
+# Change subject ID column name in chosenGeneData to "subjIdVector" to match with SubPhenCopy
+colnames(chosenGeneData)[2] <- "subjIdVector"
+
+# Output a merged dataframe for the chosen gene, consisting of gene subject IDs and sex
+mergedGeneSex <- merge(SubPhenCopy, chosenGeneData, by.y =c("subjIdVector"))
+
+# Save chosen gene sex assignments as a vector
+geneSexVector <- as.vector(mergedGeneSex$sexVector)
+
+# Change sample ID column names in chosenGeneData and SampleAttCopy to both be SampleID
+colnames(chosenGeneData)[1] <- "SampleID"
+colnames(SampleAttCopy)[1] <- "SampleID"
+
+# Now merging gene sample ID, expression, and tissue into a dataset called mergedGeneTissue
+mergedGeneTissue <- merge(SampleAttCopy, chosenGeneData, by.y =c("SampleID"))
+
+# Lastly, add gene sex assignments to make the final dataframe
+mergedGeneTissue$Sex <- geneSexVector
+mergedGeneFinal <- mergedGeneTissue
+
+# Change and simplify column names 
+colnames(mergedGeneFinal)[2] <- "Tissue"
+colnames(mergedGeneFinal)[4] <- "logExpression"
+
+# Part 3 Plot Creation: Making violin plots
+
+# Change sex column data type to character to resolve plotting color issues
+mergedGeneFinal <- transform(mergedGeneFinal, Sex = as.character(Sex))
+
+p <- ggplot(mergedGeneFinal, aes(x=Tissue, y=logExpression, fill=Sex)) +
+	geom_violin(trim=TRUE, scale="width", size = 0.25) +
+  scale_fill_manual(values=c("#E69F00", "#999999"), labels = c("Male","Female")) +
+  geom_point(aes(group=Sex), shape=20, size=0.1, position=position_jitterdodge(), alpha=0.2) +
+  theme(axis.text.x = element_text(size = 5.3, angle = 60, vjust=1, hjust=1)) +
+  labs(y = "Log10 (TPM+1)") +
+  ggtitle(paste0("GTEx Expression ", chosenGene)) +
+  theme(plot.title = element_text(hjust=0.5))
+
+
+GenePlot <- paste("Plot", i, sep = "")
+ assign(GenePlot, p)
+
+}
+
+```
+
+```{r Make multi-panel plots}
+
+multi <- (PlotXIST + PlotSRY + PlotRPS4Y1 + PlotZFY) + 
+  plot_layout(widths = c(2,2))+
+  plot_annotation(tag_levels = 'A') #add figure labels
+multi #view multi-panel figure 
+
+multi2 <- (PlotTGIF2LY + PlotPCDH11Y + PlotAMELY + PlotTBL1Y) + 
+  plot_layout(widths = c(2,2))+
+  plot_annotation(tag_levels = list(c('E','F','G','H'))) #add figure labels
+multi2 #view multi-panel figure 
+
+multi3 <- (PlotUSP9Y + PlotDDX3Y + PlotUTY + PlotTMSB4Y) + 
+  plot_layout(widths = c(2,2))+
+  plot_annotation(tag_levels = list(c('I','J','K','L'))) #add figure labels
+multi3 #view multi-panel figure 
+
+multi4 <- (PlotNLGN4Y + PlotKDM5D + PlotEIF1AY + PlotRPS4Y2) + 
+  plot_layout(widths = c(2,2))+
+  plot_annotation(tag_levels = list(c('M','N','O','P'))) #add figure labels
+multi4 #view multi-panel figure 
+
+
+```
