@@ -1,0 +1,321 @@
+---
+title: "CCLE Thresholds Analysis Part 1"
+author: "Teagen Allen"
+date: "2024-08-26"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+```
+
+
+```{r directories}
+# Set working and data directories
+working_directory = "C:/Users/teage/Documents/CCLE_LoY"  
+
+data_directory = "C:/Users/teage/Documents/CCLE_LoY/data/"
+
+setwd(working_directory) 
+
+```
+
+
+```{r data}
+# Data loading using file.path()
+chrY_gene_expression <- read_csv(file.path(data_directory, "chrY_XIST_gene_expression_annotated.csv"))
+Supplemental_Table <- read_csv(file.path(data_directory, "Supplemental_Table_S1_cleaned.csv"))
+
+```
+
+
+```{r}
+# Merge the gene expression data with supplemental information
+Expression_table_full <- merge(chrY_gene_expression, Supplemental_Table, by = "cell_line")
+
+```
+
+```{r}
+# Data cleaning and subsetting
+# Select necessary columns and rename columns for consistency
+columns_to_keep <- setdiff(grep("expression|cell_line|Biological_sex|Lineage|Age|Y_ploidy|X_ploidy|Genotype|complement", 
+                                names(Expression_table_full), value = TRUE), "Chr_Y_gene_expression_PC1")
+Expression_table <- Expression_table_full[, columns_to_keep]
+
+# Rename Biological_sex to Reported_sex for clarity
+Expression_table <- Expression_table %>%
+  rename(reported_sex = Biological_sex)
+
+```
+
+```{r add log1p transformations to the columns}
+# Log-transform expression data (using log1p for numeric columns) and append to the dataframe
+Expression_table <- Expression_table %>%
+  mutate(across(ends_with("expression"), 
+                ~ if (is.numeric(.)) log1p(.) else NULL,  
+                .names = "log_{col}"))
+
+# Display updated data
+head(Expression_table)
+
+```
+
+
+```{r}
+#' Create Violin Plot for Y Gene Expression with Thresholds
+#'
+#' @param data A data frame containing gene expression data, sex, and Y ploidy information.
+#' @param gene_expression A string specifying the gene expression column.
+#' @param sex A string specifying the column for reported sex.
+#' @param ploidy A string specifying the column for Y ploidy.
+#' @param remove_na A logical flag to remove rows with NA ploidy values. Default is TRUE.
+#' @param sd_multiplier1 Numeric value for the lower threshold (mean + sd_multiplier1 * SD of female data).
+#' @param sd_multiplier2 Numeric value for the upper threshold (mean + sd_multiplier2 * SD of female data).
+#' @return A ggplot object.
+create_Y_gene_violin_plot_thresholds <- function(data, gene_expression, sex, ploidy, remove_na = TRUE, 
+                                                 sd_multiplier1 = 0, sd_multiplier2 = 0) {
+  
+  required_columns <- c(gene_expression, sex, ploidy)
+  if (!all(required_columns %in% names(data))) {
+    stop("One or more specified columns do not exist in the data frame.")
+  }
+  
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  data <- data[data[[sex]] != "Miss_classification", ]
+  
+  # Calculate mean and standard deviation for females
+  female_data <- data[data[[sex]] == "Female", ]
+  mean_female <- mean(female_data[[gene_expression]], na.rm = TRUE)
+  sd_female <- sd(female_data[[gene_expression]], na.rm = TRUE)
+  
+  print(paste("Mean for females:", mean_female))
+  print(paste("SD for females:", sd_female))
+  
+  # Create violin plot with thresholds and custom colors
+  plot <- ggplot(data, aes(x = !!sym(sex), y = !!sym(gene_expression), fill = !!sym(sex))) + 
+    geom_violin() +  
+    geom_point(aes(shape = !!sym(ploidy)), position = position_jitter(width = 0.2)) +  
+    geom_hline(yintercept = mean_female + (sd_multiplier1 * sd_female), color = "red", linetype = "solid") + 
+    geom_hline(yintercept = mean_female + (sd_multiplier2 * sd_female), color = "green", linetype = "dashed") +  
+    labs(title = paste("Expression of", gene_expression, "by", sex, "and", ploidy),
+         x = sex,
+         y = "Expression Level") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +
+      scale_fill_manual(values = c("Female" = "#4770eb", "Male" = "#99ccff"))  # Hardcoded custom colors
+
+  return(plot)
+}
+
+```
+
+```{r}
+# Generating plots for selected Y chromosome genes with custom thresholds (3 SD and 5 SD)
+
+DDX3Y_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_DDX3Y_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+EIF1AY_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_EIF1AY_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+KDM5D_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_KDM5D_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+NLGN4Y_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_NLGN4Y_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+RPS4Y1_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_RPS4Y1_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+TMSB4Y_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_TMSB4Y_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+USP9Y_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_USP9Y_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+UTY_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_UTY_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+ZFY_5SD <- create_Y_gene_violin_plot_thresholds(Expression_table, "log_ZFY_expression", "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+```
+
+```{r}
+#' Create Violin Plot for Multiple Y Gene Expression Columns with Thresholds
+#'
+#' This function generates violin plots for all log-transformed gene expression columns in the data
+#' (excluding XIST-related columns), based on sex and Y ploidy. Custom thresholds based on the 
+#' mean and standard deviations for female data can be applied.
+#'
+#' @param data A data frame containing gene expression data, sex, and ploidy information.
+#' @param sex A string specifying the column name for biological or reported sex.
+#' @param ploidy A string specifying the column name for Y ploidy.
+#' @param remove_na A logical flag to indicate if rows with NA values in the ploidy column should be removed. Default is TRUE.
+#' @param sd_multiplier1 A numeric value for the lower threshold (multiplied by the standard deviation of female data). Default is 0.
+#' @param sd_multiplier2 A numeric value for the upper threshold (multiplied by the standard deviation of female data). Default is 0.
+#' 
+#' @return A list of ggplot objects, one for each gene expression column.
+#' @examples
+#' Y_plots <- create_Y_gene_violin_plot_thresholds_all(Expression_table, "reported_sex", "Y_ploidy", 3, 5)
+
+create_Y_gene_violin_plot_thresholds_all <- function(data, sex, ploidy, remove_na = TRUE, sd_multiplier1 = 0, sd_multiplier2 = 0) {
+  
+  # Identify numeric columns with "log" in their names, excluding those with "XIST"
+  log_columns <- names(data)[grepl("log", names(data)) & sapply(data, is.numeric) & !grepl("XIST", names(data))]
+  
+  if (length(log_columns) == 0) {
+    stop("No numeric columns with 'log' in the name (excluding 'XIST') found in the data.")
+  }
+  
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  
+  # Filter out rows with "Miss_classification" sex
+  data <- data[data[[sex]] != "Miss_classification", ]
+  
+  # Create a list to store plots
+  plot_list <- list()
+  
+  for (gene_expression in log_columns) {
+    
+    # Calculate mean and standard deviation for females
+    female_data <- data[data[[sex]] == "Female", ]
+    mean_female <- mean(female_data[[gene_expression]], na.rm = TRUE)
+    sd_female <- sd(female_data[[gene_expression]], na.rm = TRUE)
+    
+    # Print mean and SD for analysis
+    print(paste("Gene Expression Column:", gene_expression))
+    print(paste("Mean for females:", mean_female))
+    print(paste("SD for females:", sd_female))
+    print(paste("Lower Threshold:", mean_female + (sd_multiplier1 * sd_female)))
+    print(paste("Upper Threshold:", mean_female + (sd_multiplier2 * sd_female)))
+    
+    # Create the violin plot for each log column with hardcoded custom colors
+    plot <- ggplot(data, aes(x = !!sym(sex), y = !!sym(gene_expression), fill = !!sym(sex))) + 
+      geom_violin() +  
+      geom_point(aes(shape = !!sym(ploidy)), position = position_jitter(width = 0.2)) +  
+      geom_hline(yintercept = mean_female + (sd_multiplier1 * sd_female), color = "red", linetype = "solid") +  # Line at mean + SD multiplier1    
+      geom_hline(yintercept = mean_female + (sd_multiplier2 * sd_female), color = "green", linetype = "dashed") +  # Line at mean + SD multiplier2
+      labs(title = paste("Expression of", gene_expression, "by", sex, "and", ploidy),
+           x = sex,
+           y = "Expression Level") +
+      theme_minimal() +
+      scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +  # More concise label formatting
+      scale_fill_manual(values = c("Female" = "#4770eb", "Male" = "#99ccff"))  # Hardcoded custom colors
+    
+    # Store plot in the list
+    plot_list[[gene_expression]] <- plot
+
+  }
+  
+  # Print all plots
+  print(plot_list)
+  
+  return(plot_list)
+}
+
+
+```
+
+```{r}
+# Create plots for each gene at once
+
+Y_plots <- create_Y_gene_violin_plot_thresholds_all(Expression_table, "reported_sex", "Y_ploidy", sd_multiplier1 = 3, sd_multiplier2 = 5)
+
+```
+
+```{r}
+#' Create Violin Plot for XIST-Related Gene Expression Columns with Thresholds
+#'
+#' This function generates violin plots for all log-transformed XIST-related gene expression columns 
+#' in the data, based on sex and X ploidy. Custom thresholds based on the mean and standard deviations 
+#' for male data can be applied.
+#'
+#' @param data A data frame containing gene expression data, sex, and ploidy information.
+#' @param sex A string specifying the column name for biological or reported sex.
+#' @param ploidy A string specifying the column name for X ploidy.
+#' @param remove_na A logical flag to indicate if rows with NA values in the ploidy column should be removed. Default is TRUE.
+#' @param sd_multiplier1 A numeric value for the lower threshold (multiplied by the standard deviation of male data). Default is 0.
+#' @param sd_multiplier2 A numeric value for the upper threshold (multiplied by the standard deviation of male data). Default is 0.
+#' 
+#' @return A list of ggplot objects, one for each gene expression column.
+#' @examples
+#' X_plots <- create_X_gene_violin_plot_thresholds(Expression_table, "reported_sex", "X_ploidy", 2, 4)
+
+create_X_gene_violin_plot_thresholds <- function(data, sex, ploidy, remove_na = TRUE, sd_multiplier1 = 0, sd_multiplier2 = 0) {
+  
+  # Identify numeric columns with "log_XIST" in their names
+  log_columns <- names(data)[grepl("log_XIST", names(data)) & sapply(data, is.numeric)]
+  
+  if (length(log_columns) == 0) {
+    stop("No numeric columns with 'log_XIST' in the name found in the data.")
+  }
+  
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  
+  # Filter out rows with "Miss_classification" sex
+  data <- data[data[[sex]] != "Miss_classification", ]
+  
+  # Create a list to store plots
+  plot_list <- list()
+  
+  for (gene_expression in log_columns) {
+    
+    # Calculate mean and standard deviation for males
+    male_data <- data[data[[sex]] == "Male", ]
+    mean_male <- mean(male_data[[gene_expression]], na.rm = TRUE)
+    sd_male <- sd(male_data[[gene_expression]], na.rm = TRUE)
+    
+    # Print mean and SD for analysis
+    print(paste("Gene Expression Column:", gene_expression))
+    print(paste("Mean for males:", mean_male))
+    print(paste("SD for males:", sd_male))
+    print(paste("Lower Threshold:", mean_male + (sd_multiplier1 * sd_male)))
+    print(paste("Upper Threshold:", mean_male + (sd_multiplier2 * sd_male)))
+    
+    # Create the violin plot for each log_XIST column with hardcoded custom colors
+    plot <- ggplot(data, aes(x = !!sym(sex), y = !!sym(gene_expression), fill = !!sym(sex))) + 
+      geom_violin() +  
+      geom_point(aes(shape = !!sym(ploidy)), position = position_jitter(width = 0.3)) +  
+      geom_hline(yintercept = mean_male + (sd_multiplier1 * sd_male), color = "red", linetype = "solid") +  # Line at mean + SD multiplier1    
+      geom_hline(yintercept = mean_male + (sd_multiplier2 * sd_male), color = "green", linetype = "dashed") +  # Line at mean + SD multiplier2
+      labs(title = paste("Expression of", gene_expression, "by Reported Sex and", ploidy),
+           x = sex,
+           y = "Expression Level") +
+      theme_minimal() +
+      scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +  # More concise label formatting
+       scale_fill_manual(values = c("Female" = "#4770eb", "Male" = "#99ccff"))  # Hardcoded custom colors
+    
+    # Store plot in the list
+    plot_list[[gene_expression]] <- plot
+
+  }
+  
+  # Print all plots
+  print(plot_list)
+  
+  return(plot_list)
+}
+
+
+```
+
+```{r}
+
+# Create plots for each gene at once
+X_plot <- create_X_gene_violin_plot_thresholds(Expression_table, "reported_sex", "X_ploidy", sd_multiplier1 = 2, sd_multiplier2 = 3)
+
+```
+
+
+
+
+
