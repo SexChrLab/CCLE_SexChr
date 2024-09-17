@@ -1,0 +1,166 @@
+---
+title: "CCLE CN Analysis Part 1"
+author: "Teagen Allen"
+date: "2024-09-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(readr)
+
+```
+
+
+```{r directories}
+# Set working and data directories
+working_directory = "C:/Users/teage/Documents/CCLE_LoY"  
+
+data_directory = "C:/Users/teage/Documents/CCLE_LoY/data/"
+
+output_directory = "C:/Users/teage/Documents/CCLE_LoY/output/"
+
+setwd(working_directory) 
+
+```
+
+
+```{r data}
+# Data loading using file.path()
+library(readr)
+chrY_gene_expression <- read_csv(file.path(data_directory, "CCLE_all_combined_gene_expression.csv"))
+Supplemental_Table <- read_csv(file.path(data_directory, "Supplemental_Table_S1_cleaned.csv"))
+
+```
+
+
+```{r}
+# Merge the gene expression data with supplemental information
+# Supplementary table sourced from Shohat et al. (2022), cleaned for consistent column names
+Expression_table_full <- merge(chrY_gene_expression, Supplemental_Table, by = "cell_line")
+
+
+```
+
+```{r}
+# Data cleaning and subsetting
+# Select necessary columns and rename columns for consistency
+columns_to_keep <- setdiff(grep("expression|cell_line|Biological_sex|Lineage|Age|Y_ploidy|X_ploidy|Genotype|complement", 
+                                names(Expression_table_full), value = TRUE), "Chr_Y_gene_expression_PC1")
+Expression_table <- Expression_table_full[, columns_to_keep]
+
+# Rename Biological_sex to Reported_sex for clarity and inclusivity
+Expression_table <- Expression_table %>%
+  rename(reported_sex = Biological_sex)
+
+```
+
+
+```{r}
+#' Create Violin Plot for Y Gene Expression with TPM Thresholds
+#'
+#' @param data A data frame containing gene expression data, sex, and Y ploidy information.
+#' @param gene_expression A string specifying the gene expression column.
+#' @param sex A string specifying the column for reported sex.
+#' @param ploidy A string specifying the column for Y ploidy.
+#' @param remove_na A logical flag to remove rows with NA ploidy values. Default is TRUE.
+#' @param tpm_threshold1 Numeric value for the lower threshold (in TPM).
+#' @param tpm_threshold2 Numeric value for the upper threshold (in TPM).
+#' @return A ggplot object.
+
+create_violin_plot_thresholds <- function(data, gene_expression, sex, ploidy, remove_na = TRUE, 
+                                                 tpm_threshold1 = 0, tpm_threshold2 = 0) {
+  
+  required_columns <- c(gene_expression, sex, ploidy)
+  if (!all(required_columns %in% names(data))) {
+    stop("One or more specified columns do not exist in the data frame.")
+  }
+  
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  data <- data[data[[sex]] != "Miss_classification", ]
+
+  # Create violin plot with log-transformed TPM thresholds
+  plot <- ggplot(data, aes(x = !!sym(sex), y = !!sym(gene_expression), fill = !!sym(sex))) + 
+    geom_violin() +  
+    geom_point(aes(shape = !!sym(ploidy)), position = position_jitter(width = 0.2)) +  
+    
+    # Convert TPM thresholds to log(1 + x) for plotting
+    geom_hline(yintercept = log(tpm_threshold1 + 1), color = "red", linetype = "solid") + 
+    geom_hline(yintercept = log(tpm_threshold2 + 1), color = "green", linetype = "dashed") +  
+    
+    labs(title = paste("Expression of", gene_expression, "by", sex, "and", ploidy),
+         x = sex,
+         y = "Log(1 + TPM) Expression Level") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +
+    scale_fill_manual(values = c("Female" = "#4770eb", "Male" = "#99ccff"))  # Hardcoded custom colors
+  
+  return(plot)
+}
+
+
+```
+
+```{r}
+# Generating plots for selected Y chromosome genes with custom thresholds (3 SD and 5 SD)
+
+DDX3Y_10TPM <- create_violin_plot_thresholds(Expression_table, "DDX3Y_log_expression", "reported_sex", "Y_ploidy",  tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+EIF1AY_10TPM <- create_violin_plot_thresholds(Expression_table, "EIF1AY_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+KDM5D_10TPM <- create_violin_plot_thresholds(Expression_table, "KDM5D_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+NLGN4Y_10TPM <- create_violin_plot_thresholds(Expression_table, "NLGN4Y_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+RPS4Y1_10TPM <- create_violin_plot_thresholds(Expression_table, "RPS4Y1_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+TMSB4Y_10TPM <- create_violin_plot_thresholds(Expression_table, "TMSB4Y_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+USP9Y_10TPM <- create_violin_plot_thresholds(Expression_table, "USP9Y_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+UTY_10TPM <- create_violin_plot_thresholds(Expression_table, "UTY_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+ZFY_10TPM <- create_violin_plot_thresholds(Expression_table, "ZFY_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+XIST_10TPM <- create_violin_plot_thresholds(Expression_table, "XIST_log_expression", "reported_sex", "Y_ploidy", tpm_threshold1 = 1, tpm_threshold2 = 10)
+
+```
+
+```{r}
+#Display plots
+DDX3Y_10TPM
+
+EIF1AY_10TPM
+
+KDM5D_10TPM
+
+NLGN4Y_10TPM
+
+RPS4Y1_10TPM
+
+TMSB4Y_10TPM
+
+USP9Y_10TPM 
+
+UTY_10TPM 
+
+ZFY_10TPM 
+
+XIST_10TPM 
+
+
+```
+
+```{r session-info}
+# Display session information, including R version and package versions
+sessionInfo()
+
+```
