@@ -1,0 +1,465 @@
+---
+title: "CCLE Ploidy Plots"
+author: "Teagen Allen"
+date: "2024-07-06"
+output: html_document
+---
+
+Project Overview
+This project analyzes gene expression data from the Cancer Cell Line Encyclopedia (CCLE) and copy number data for sex chromosomes from the paper "Gene Essentiatlity" by Shohat et al., 2022. The goal is to explore the relationship between gene expression and the ploidy of sex chromosomes.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries
+The libraries used in this analysis include `ggplot2` for plotting and `readr` for reading CSV files.
+
+```{r libraries}
+library(ggplot2)
+library(dplyr)
+library(UpSetR)
+
+```
+
+#### Directories
+Set the working directory and data directory paths.
+
+```{r directories}
+# Set working and data directories
+working_directory <- "C:/Users/teage/Documents/CCLE_LoY"  
+data_directory <- "C:/Users/teage/Documents/CCLE_LoY/data/"
+output_directory = "C:/Users/teage/Documents/CCLE_LoY/output/"
+
+# Set working directory
+setwd(working_directory)
+
+```
+
+#### Data Loading
+Read the gene expression data and the supplemental table from the CSV files.
+
+```{r data}
+library(readr)
+
+#chrY_gene_expression <- read_csv(data_directory/"chrY_gene_expression_annotated.csv")
+Supplemental_Table_S1_cleaned <- read_csv("data/Supplemental_Table_S1_cleaned.csv")
+CCLE_data <- read_delim(paste0(data_directory, "CCLE_RNAseq_rsem_genes_tpm_20180929.txt"), 
+                          delim = "\t", escape_double = FALSE, trim_ws = TRUE)
+
+annotation_data <- read.csv(paste0(data_directory,"Cell_lines_annotations_20181226.txt"), header = TRUE, sep = "\t")
+
+```
+
+```{r}
+# Define the list of gene IDs and their corresponding gene names
+gene_info <- c("ENSG00000067048.12" = "DDX3Y", 
+               "ENSG00000198692.5"  = "EIF1AY", 
+               "ENSG00000012817.11" = "KDM5D", 
+               "ENSG00000165246.8"  = "NLGN4Y", 
+               "ENSG00000129824.11" = "RPS4Y1", 
+               "ENSG00000154620.5"  = "TMSB4Y", 
+               "ENSG00000114374.8"  = "USP9Y", 
+               "ENSG00000183878.11" = "UTY", 
+               "ENSG00000067646.7"  = "ZFY", 
+               "ENSG00000229807.5"  = "XIST")
+
+# Subset the gene expression data by the chosen genes
+chosen_genes_data <- subset(CCLE_data, gene_id %in% names(gene_info))
+
+# Step to rename the gene IDs in the data frame
+chosen_genes_data$gene_id <- gene_info[chosen_genes_data$gene_id]
+
+# Remove the transcript_ids column
+chosen_genes_data <- chosen_genes_data[, !colnames(chosen_genes_data) %in% "transcript_ids"]
+
+
+# Display the first few entries to verify the data
+print(head(chosen_genes_data))
+
+
+```
+
+```{r}
+# Transpose the data
+transposed_data <- as.data.frame(t(chosen_genes_data))
+
+# Set the first row as the header (gene names)
+colnames(transposed_data) <- transposed_data[1, ]
+transposed_data <- transposed_data[-1, ]
+
+# Convert all columns to numeric
+transposed_data[] <- lapply(transposed_data, as.numeric)
+
+# Add a name to the first column
+transposed_data <- cbind(sample = rownames(transposed_data), transposed_data)
+
+# Reset row names to avoid duplication
+rownames(transposed_data) <- NULL
+
+# Display the first few entries of the transposed data
+print(head(transposed_data))
+
+# Now merge with the sex annotation data
+sex_annotation <- annotation_data[, c("CCLE_ID", "Gender")]
+colnames(sex_annotation)[1] <- "sample"  # Rename for merging
+colnames(sex_annotation)[2] <- "reported_sex"  # Rename for accuate language
+
+# Merge the sex annotation to the transposed data
+transposed_data_with_sex <- merge(transposed_data, sex_annotation, by = "sample", all.x = TRUE)
+
+# Display the first few entries to verify the merge
+print(head(transposed_data_with_sex))
+
+
+```
+
+#### Data Merging
+Merge the gene expression data with the supplemental table on the `cell_line` column after removing rows with `NA` values in the `cell_line` column.
+
+```{r merge data}
+# Subset the relevant columns
+ploidy_data <- Supplemental_Table_S1_cleaned[, c("cell_line", "Biological_sex" , "Y_ploidy", "X_ploidy", "Genotype")]
+
+# Rename DepMap_ID to match the sample column name in transposed_data
+colnames(ploidy_data)[1] <- "sample"  # Rename for merging
+
+# Merge with the transposed data
+expression_ploidy_data <- merge(transposed_data, ploidy_data, by = "sample", all.x = TRUE)
+
+# Display the first few entries to verify the merge
+print(head(expression_ploidy_data))
+
+```
+
+#### Log Transformation
+Perform log transformation on the expression columns to handle log(0) issues.
+```{r}
+# Define the gene columns (excluding 'sample' and any non-gene columns)
+gene_columns <- colnames(expression_ploidy_data)[2:(ncol(expression_ploidy_data) - 4)]  # Adjust based on the number of non-gene columns
+
+# Log-transform each gene expression value and create new columns
+for (gene in gene_columns) {
+  new_col_name <- paste0("log_", gene)  # Create new column name
+  expression_ploidy_data[[new_col_name]] <- log10(expression_ploidy_data[[gene]] + 1)  # Log-transform and add to dataframe
+}
+
+# Display the first few entries to verify the log transformation
+print(head(expression_ploidy_data))
+
+
+```
+
+```{r}
+# Subset data into male and female
+male_data <- expression_ploidy_data[expression_ploidy_data$Biological_sex == "Male", ]
+female_data <- expression_ploidy_data[expression_ploidy_data$Biological_sex == "Female", ]
+
+```
+
+
+#### Plotting Gene Expression vs. Y Ploidy (NA Omitted)
+Create function for violin plots for each gene expression variable grouped by Y ploidy, excluding rows with `NA` values.
+
+```{r}
+# Function to create violin plots with points for gene expression variables by sex in the same graph
+create_gene_violin_plot_by_sex <- function(data, gene_expression, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+
+  # Filter out rows with "Miss-classification" in Biological_sex
+  data <- data[data$Biological_sex != "Miss_classification", ]
+
+  # Create an interaction variable for plotting
+  data$interaction <- interaction(data$Biological_sex, data[[ploidy]], sep = "_")
+
+  # Create spaced interaction by adding a space level
+  data$spaced_interaction <- as.factor(paste(data$interaction, " ", sep = ""))
+
+  ggplot(data, aes(x = spaced_interaction, y = !!sym(gene_expression), fill = Biological_sex)) + 
+    geom_violin(width = 0.8, hight = 0, scale = "width", aes(fill = Biological_sex)) +  # Adjust width for better appearance
+    geom_jitter(width = 0.2, aes(x = spaced_interaction, y = !!sym(gene_expression) , color = Biological_sex)) +  # Add points with jitter
+    labs(
+      title = paste("Distribution of", gene_expression, "by Reported Sex and Ploidy"),
+      x = "Reported Sex and Ploidy Status",
+      y = paste("Log-transformed Expression of", gene_expression)
+    ) +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +  # Handle NA values in y-axis labels
+    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), 
+                      name = "Reported Sex") +
+    scale_color_manual(values = c("Female" = "black", "Male" = "black"), 
+                       name = "Reported Sex") +  # Add a color scale for points
+    scale_x_discrete(name = "Reported Sex and Ploidy Status")
+}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r Plot Y Ploidy na.omit}
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_KDM5D", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_DDX3Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_EIF1AY", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_NLGN4Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_RPS4Y1", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_TMSB4Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_USP9Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_UTY", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_ZFY", "Y_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_XIST", "Y_ploidy")
+```
+
+```{r Plot X Ploidy na.omit}
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_KDM5D", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_DDX3Y", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_EIF1AY", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_NLGN4Y", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_RPS4Y1", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_TMSB4Y", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_USP9Y", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_UTY", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_ZFY", "X_ploidy")
+create_gene_violin_plot_by_sex(expression_ploidy_data, "log_XIST", "X_ploidy")
+```
+
+```{r}
+create_gene_violin_plot_by_sex(male_data, "log_KDM5D", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_DDX3Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_EIF1AY", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_NLGN4Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_RPS4Y1", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_TMSB4Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_USP9Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_UTY", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_ZFY", "Y_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_XIST", "Y_ploidy")
+
+```
+
+```{r}
+create_gene_violin_plot_by_sex(male_data, "log_KDM5D", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_DDX3Y", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_EIF1AY", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_NLGN4Y", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_RPS4Y1", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_TMSB4Y", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_USP9Y", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_UTY", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_ZFY", "X_ploidy")
+create_gene_violin_plot_by_sex(male_data, "log_XIST", "X_ploidy")
+
+```
+
+```{r}
+create_gene_violin_plot_by_sex(female_data, "log_KDM5D", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_DDX3Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_EIF1AY", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_NLGN4Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_RPS4Y1", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_TMSB4Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_USP9Y", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_UTY", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_ZFY", "Y_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_XIST", "Y_ploidy")
+
+```
+
+```{r}
+create_gene_violin_plot_by_sex(female_data, "log_KDM5D", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_DDX3Y", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_EIF1AY", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_NLGN4Y", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_RPS4Y1", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_TMSB4Y", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_USP9Y", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_UTY", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_ZFY", "X_ploidy")
+create_gene_violin_plot_by_sex(female_data, "log_XIST", "X_ploidy")
+
+```
+
+```{r}
+# Run the function for each gene for Y_ploidy and save the plots
+genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y", 
+           "log_RPS4Y1", "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY", "log_XIST")
+
+# Create and save plots for each gene
+for (gene in genes) {
+ all_data_plot <- create_gene_violin_plot_by_sex(expression_ploidy_data, gene, "Y_ploidy")
+  
+  # Save the plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0(gene, "_Y_ploidy_sex_violin_plot.png")), plot = all_data_plot, width = 8, height = 6)
+}
+
+# Run the function for each gene for X_ploidy and save the plots
+genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y", 
+           "log_RPS4Y1", "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY", "log_XIST")
+
+# Create and save plots for each gene
+for (gene in genes) {
+  all_data_plot <- create_gene_violin_plot_by_sex(expression_ploidy_data, gene, "X_ploidy")
+  
+  # Save the plot to a PNG file
+  ggsave(filename = file.path("output_directory", paste0("All_", gene, "_Y_ploidy_violin_plot.png")), 
+         plot = all_data_plot, width = 8, height = 6)
+}
+
+
+```
+
+```{r}
+
+# Create and save plots for males
+for (gene in genes) {
+  male_plot <- create_gene_violin_plot_by_sex(male_data, gene, "Y_ploidy")
+  
+  # Save the male plot to a PNG file
+  ggsave(filename = file.path("output_directory", paste0("Male_", gene, "_Y_ploidy_violin_plot.png")), 
+         plot = male_plot, width = 8, height = 6)
+}
+
+# Create and save plots for females
+for (gene in genes) {
+  female_plot <- create_gene_violin_plot_by_sex(female_data, gene, "Y_ploidy")
+  
+  # Save the female plot to a PNG file
+  ggsave(filename = file.path("output_directory", paste0("Female_", gene, "_Y_ploidy_violin_plot.png")), 
+         plot = female_plot, width = 8, height = 6)
+}
+
+
+```
+
+```{r}
+
+# Create and save plots for males
+for (gene in genes) {
+  male_plot <- create_gene_violin_plot_by_sex(male_data, gene, "X_ploidy")
+  
+  # Save the male plot to a PNG file
+  ggsave(filename = file.path("output_directory", paste0("Male_", gene, "_X_ploidy_violin_plot.png")), 
+         plot = male_plot, width = 8, height = 6)
+}
+
+# Create and save plots for females
+for (gene in genes) {
+  female_plot <- create_gene_violin_plot_by_sex(female_data, gene, "X_ploidy")
+  
+  # Save the female plot to a PNG file
+  ggsave(filename = file.path("output_directory", paste0("Female_", gene, "_X_ploidy_violin_plot.png")), 
+         plot = female_plot, width = 8, height = 6)
+}
+
+
+```
+
+```{r}
+# Function to create faceted violin plots for multiple gene expression variables by sex
+create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+
+  # Filter out rows with "Miss-classification" in Biological_sex
+  data <- data[data$Biological_sex != "Miss_classification", ]
+
+  # List of genes to be plotted
+  genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y", "log_RPS4Y1", 
+             "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY", "log_XIST")
+
+  # Convert the data to long format for faceting
+  data_long <- tidyr::pivot_longer(data, cols = all_of(genes), names_to = "gene_expression", values_to = "expression_value")
+
+  # Create spaced interaction for x-axis
+  data_long$spaced_interaction <- as.factor(paste(data_long$Biological_sex, data_long[[ploidy]], " ", sep = ""))
+
+  # Plot the data with faceting by gene
+  ggplot(data_long, aes(x = spaced_interaction, y = expression_value, fill = Biological_sex)) + 
+    geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
+    labs(
+      title = "Distribution of Gene Expression by Reported Sex and Ploidy",
+      x = "Reported Sex and Ploidy Status",
+      y = "Log-transformed Expression"
+    ) +
+    scale_fill_manual(values = c("Female" = "darkblue", "Male" = "lightblue"), name = "Reported Sex") + 
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +
+    scale_x_discrete(name = "Reported Sex and Ploidy Status") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~ gene_expression, scales = "free_y")  # Facet by gene expression
+}
+
+```
+
+```{r}
+# Create faceted violin plot for all data
+all_data_plot <- create_faceted_violin_plot(expression_ploidy_data, "Y_ploidy")
+
+all_data_plot
+
+```
+```{r}
+# Create faceted violin plot for all data
+all_data_Y_plot <- create_faceted_violin_plot(expression_ploidy_data, "Y_ploidy")
+all_data_X_plot <- create_faceted_violin_plot(expression_ploidy_data, "X_ploidy")
+all_data_Y_plot
+all_data_X_plot
+
+```
+
+```{r}
+# Create faceted violin plot for male data
+male_data_Y_plot <- create_faceted_violin_plot(male_data, "Y_ploidy")
+male_data_X_plot <- create_faceted_violin_plot(male_data, "X_ploidy")
+male_data_Y_plot
+male_data_X_plot
+
+```
+
+```{r}
+# Create faceted violin plot for male data
+female_data_Y_plot <- create_faceted_violin_plot(female_data, "Y_ploidy")
+female_data_X_plot <- create_faceted_violin_plot(female_data, "X_ploidy")
+female_data_Y_plot
+female_data_X_plot
+
+```
+
+
+```{r}
+# Save the plot as a PNG file
+ggsave(filename = file.path("output_directory", "Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.png"), 
+       plot = all_data_Y_plot, width = 12, height = 8)
+
+ggsave(filename = file.path("output_directory", "Faceted_Gene_Expression_X_Ploidy_Violin_Plot.png"), 
+       plot = all_data_X_plot, width = 12, height = 8)
+
+```
+
+```{r}
+# Save the plot as a PNG file
+ggsave(filename = file.path("output_directory", "Male_Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.png"), 
+       plot = male_data_Y_plot, width = 12, height = 8)
+
+ggsave(filename = file.path("output_directory", "Male_Faceted_Gene_Expression_X_Ploidy_Violin_Plot.png"), 
+       plot = male_data_X_plot, width = 12, height = 8)
+
+```
+
+```{r}
+# Save the plot as a PNG file
+ggsave(filename = file.path("output_directory", "Female_Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.png"), 
+       plot = female_data_Y_plot, width = 12, height = 8)
+
+ggsave(filename = file.path("output_directory", "Female_Faceted_Gene_Expression_X_Ploidy_Violin_Plot.png"), 
+       plot = female_data_X_plot, width = 12, height = 8)
+
+```
