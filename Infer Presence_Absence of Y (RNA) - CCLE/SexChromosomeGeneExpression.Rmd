@@ -1,0 +1,722 @@
+---
+title: "Sex Chromosome Gene Expression"
+author: "Mariah Lee"
+date: " Last Updated `r format(Sys.time(), '%m/%d/%y')`"
+output: 
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 60
+---
+
+```{r setup, include=FALSE}
+# Set the root directory for knitting the document
+knitr::opts_knit$set(root.dir = "D:/CCLE_Project/Infer_Y_output/")
+# Set chunk options to improve readability of code output
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+
+## Overview
+
+The purpose of this file is to infer the presence or absence of the X and Y chromosomes in the cell lines in the CCLE. XIST will be used to infer the presence of one or two X chromosomes (one active X chromosome and one inactive chromosome). Multiple X-degenerate genes will be used to infer the presence of a Y chromosome as well as possible deletion or down regulation.
+
+## Install and Load Needed Packages
+
+```{r LoadPackages, message=FALSE, warning=FALSE}
+# Function to install and load CRAN packages
+load_or_install <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+# Function to install and load Bioconductor packages
+load_or_install_bioconductor <- function(pkg) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+  }
+  BiocManager::install(pkg, update = FALSE)
+  library(pkg, character.only = TRUE)
+}
+
+# List of required CRAN packages
+cran_packages <- c("dplyr", "tidyr", "ggplot2", "tibble")
+
+# List of required Bioconductor packages
+bioc_packages <- c("biomaRt")
+
+# Install and load CRAN packages
+sapply(cran_packages, load_or_install)
+
+# Install and load Bioconductor packages
+sapply(bioc_packages, load_or_install_bioconductor)
+```
+
+## Read Data
+
+The gene expression matrix file contains a table with all the genes as rows and all the cell lines in the CCLE as columns, plus a few extra columns giving important information about the genes like name and IDs in important databases. It is is fairly large and will likely take a few minutes to load.
+
+The sample annotation file contains information about each of the cell lines in the CCLE. This includes tumor tissue type the cell line was derived from, patient information like age and "gender" (reported sex), as well as some information about how the cell line was grown prior to sample collection for RNA sequencing.
+
+```{r ReadData, message=FALSE}
+# Directory where the data is stored; include / at the end
+data_directory <- "D:/CCLE_Project/data/"
+
+# Check if data files exist before loading
+if (file.exists(paste0(data_directory,"CCLE_RNAseq_rsem_genes_tpm_20180929.txt"))) {
+  CCLE_data <- read.delim(paste0(data_directory, "CCLE_RNAseq_rsem_genes_tpm_20180929.txt"), 
+                          header = TRUE, sep = "\t")
+
+} else {
+  stop("CCLE RNAseq gene expression file not found.")
+}
+
+if (file.exists(paste0(data_directory,"Cell_lines_annotations_20181226.txt"))) {
+  annotation_data <- read.csv(paste0(data_directory,"Cell_lines_annotations_20181226.txt"), 
+                              header = TRUE, sep = "\t")
+} else {
+  stop("Cell line annotation file not found.")
+}
+```
+
+## Convert Gene IDs to Gene Symbols
+
+The dataframe of tpm values uses ensembl gene IDs, so these will need to be converted to gene names.
+
+```{r EnsemblConversion}
+# Connect to the Ensembl BioMart database
+ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl", 
+                   #host = "https://ensembl.org"
+                   )
+
+# Keep the original gene IDs with version numbers
+original_gene_ids <- CCLE_data$gene_id
+
+# Extract gene IDs without version numbers for the query
+gene_ids_no_version <- sub("\\..*", "", original_gene_ids)
+
+# Function to process Ensembl IDs in batches
+process_in_batches <- function(gene_ids, batch_size = 500, ensembl) {
+  results <- list()
+  
+  for (i in seq(1, length(gene_ids), by = batch_size)) {
+    batch <- gene_ids[i:min(i + batch_size - 1, length(gene_ids))]
+    
+    # Convert gene_ids to gene names using biomaRt
+    gene_conversion <- biomaRt::getBM(filters = "ensembl_gene_id", 
+                                      attributes = c("ensembl_gene_id", "hgnc_symbol"), 
+                                      values = batch, 
+                                      mart = ensembl)
+    
+    results[[length(results) + 1]] <- gene_conversion
+  }
+  
+  do.call(rbind, results)
+}
+
+# Apply the batch processing function
+all_gene_conversions <- process_in_batches(gene_ids_no_version, batch_size = 500, ensembl)
+
+# Merge gene conversion results back to the original data
+gene_conversion_df <- data.frame(gene_id = original_gene_ids, stripped_id = gene_ids_no_version)
+
+# Combine with converted gene names
+CCLE_with_symbols <- merge(gene_conversion_df, all_gene_conversions, by.x = "stripped_id", by.y = "ensembl_gene_id", all.x = TRUE)
+
+# Merge the gene symbols back into the CCLE_data
+CCLE_with_symbols <- merge(CCLE_data, CCLE_with_symbols[, c("gene_id", "hgnc_symbol")], by = "gene_id", all.x = TRUE)
+
+# View the updated CCLE_with_symbols data
+head(CCLE_with_symbols)
+```
+
+## Filter, Transpose, Clean, and Create `ccle_tpm` Data Frame
+
+Here we will filter the data, so we only have tpm values from our genes of interest. Then, we will create a data frame that only has data from cell lines with a reported sex.
+
+```{r FilterData}
+# Filter for genes of interest
+genes_of_interest <- c("XIST", "SRY", "RPS4Y1", "ZFY", "TGIF2LY", "PCDH11Y", 
+                       "TBL1Y", "AMELY", "USP9Y", "DDX3Y", "UTY", "TMSB4Y", 
+                       "NLGN4Y", "KDM5D", "EIF1AY", "RPS4Y2")
+
+filtered_data <- CCLE_with_symbols %>%
+  dplyr::filter(hgnc_symbol %in% genes_of_interest)
+
+# Remove any unnecessary columns like transcript_ids
+filtered_data <- filtered_data %>%
+  dplyr::select(-transcript_ids)
+
+# Ensure there are no duplicate gene symbols
+filtered_data <- filtered_data %>%
+  dplyr::distinct(hgnc_symbol, .keep_all = TRUE)
+
+# Check to make sure the data frame is properly filtered
+filtered_data$hgnc_symbol
+head(filtered_data)
+```
+
+```{r CleanData}
+# Set gene symbols as row names and transpose the data
+transposed_data <- filtered_data %>%
+  tibble::column_to_rownames("hgnc_symbol") %>%
+  t() %>%
+  as.data.frame()
+
+# Remove the 'X' prefix from the rownames
+rownames(transposed_data) <- gsub("^X", "", rownames(transposed_data))
+
+# Remove the 'gene_id' row (if it exists)
+transposed_data <- transposed_data[-which(rownames(transposed_data) == "gene_id"), ]
+
+# Match `reported_sex` and `pathology` from `annotation_data` to the cell lines
+cell_line_ids <- rownames(transposed_data)
+transposed_data$reported_sex <- annotation_data$Gender[match(cell_line_ids, annotation_data$CCLE_ID)]
+transposed_data$pathology <- annotation_data$Pathology[match(cell_line_ids, annotation_data$CCLE_ID)]
+
+# Convert `reported_sex` and `pathology` to factors
+transposed_data$reported_sex <- as.factor(transposed_data$reported_sex)
+transposed_data$pathology <- as.factor(transposed_data$pathology)
+
+# Define the available genes (genes of interest that are present in the dataset)
+available_genes <- intersect(genes_of_interest, colnames(transposed_data))
+
+# Order the columns to include reported_sex, pathology, and genes of interest
+ordered_transposed_data <- transposed_data[, c("reported_sex", "pathology", available_genes)]
+
+# Append "_tpm" to the gene column names
+colnames(ordered_transposed_data)[colnames(ordered_transposed_data) %in% available_genes] <- paste0(available_genes, "_TPM")
+
+# Assign NA values to missing data
+ordered_transposed_data[ordered_transposed_data == ""] <- NA
+
+# Ensure all expression columns (TPM columns) are numeric
+ordered_transposed_data[, 3:ncol(ordered_transposed_data)] <- sapply(ordered_transposed_data[
+  , 3:ncol(ordered_transposed_data)], as.numeric)
+```
+
+```{r LogTransform}
+# Define a custom log1p transformation function with base 10
+log1p_base10 <- function(x) log10(1 + x)
+
+# Apply log1p transformation with base 10 to all TPM values
+log_tpm <- ordered_transposed_data[, 3:ncol(ordered_transposed_data)] %>% sapply(log1p_base10)
+
+# Rename columns for log1p-transformed values
+colnames(log_tpm) <- paste0(colnames(log_tpm), "_Log")
+
+# Combine the original TPMs and log1p-transformed values into a single dataframe
+ccle_tpm_combined <- cbind(ordered_transposed_data, log_tpm)
+
+# Add "unknown" to the levels of the factor and replace NA values
+ccle_tpm_combined <- ccle_tpm_combined %>%
+  dplyr::mutate(reported_sex = forcats::fct_expand(reported_sex, "unknown")) %>%
+  tidyr::replace_na(list(reported_sex = "unknown"))
+
+# Define the gene columns in the dataset (the log-transformed values)
+log_gene_columns <- grep("_Log$", colnames(ccle_tpm_combined), value = TRUE)
+
+# View the final result with both TPM and Log TPM
+print(head(ccle_tpm_combined))
+
+# Define the selected genes you want to highlight
+# selected_genes <- c("XIST_tpm_log1p10", "RPS4Y1_tpm_log1p10", "ZFY_tpm_log1p10", 
+#                     "USP9Y_tpm_log1p10", "DDX3Y_tpm_log1p10", "UTY_tpm_log1p10", 
+#                     "KDM5D_tpm_log1p10", "EIF1AY_tpm_log1p10")
+
+```
+
+## Calculating Thresholds
+
+Here we will calculate thresholds based on TPM. We will not trust one TPM or less to provide evidence of expression. Ten TPM or higher will be considered as evidence of expression. Any values between one and ten will be considered as intermediate. In summary, one and ten TPM are our high and low thresholds; this is the same for both our X and Y chromosome genes. In our visualizations, TPM values will be transformed using log10(1 + x), so the thresholds will need to be calculated.
+
+```{r Thresholds}
+# High threshold: 10 TPM
+high_threshold <- log10(1 + 10)
+
+# Low threshold: 1 TPM
+low_threshold <- log10(1 + 1)
+```
+
+## Violin Plots
+
+We would like to see the range of values we see for the expression of the gene -- do all cell lines from patients reported as female have high expression and as male have low? What threshold do we use to even say what is high or low expression?
+
+### Individual Violin Plots per Gene
+
+```{r ViolinswithUnknowns}
+# Function to create individual violin plots for each gene with thresholds (including unknown sex)
+create_violin_plot_with_thresholds_including_unknown <- function(chosen_gene, 
+                                                                 data, 
+                                                                 low_threshold, high_threshold) {
+  
+  # Prepare the data for the chosen gene (log TPM values), including unknown sex
+  gene_data_unknown <- data.frame(
+    reported_sex = data$reported_sex,
+    expression = data[[chosen_gene]]
+  ) %>%
+    dplyr::filter(reported_sex %in% c("male", "female", "unknown")) %>%  # Include unknown
+    mutate(reported_sex_capitalized = case_when(
+      reported_sex == "male" ~ "Male",
+      reported_sex == "female" ~ "Female",
+      reported_sex == "unknown" ~ "Unknown"
+    ))
+  
+  # Clean up the gene name by removing the _TPM_Log1p10 suffix for y-axis label
+  gene_label <- gsub("_TPM_Log", "", chosen_gene)
+  
+  # Calculate sample sizes for each group
+  sample_sizes_unknown <- gene_data_unknown %>%
+    group_by(reported_sex_capitalized) %>%
+    summarise(n = n())
+  
+  # Plot the violin plot with thresholds
+  plot_unknown <- ggplot(gene_data_unknown, aes(x = reported_sex_capitalized, y = expression, fill = reported_sex_capitalized)) + 
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +  
+    geom_jitter(size = 0.25, width = 0.2) +  
+    ylab(paste0(gene_label, " Gene Expression (Log10(1 + TPM))")) + 
+    xlab("Reported Sex") +
+    theme_light() +
+    
+    # Capitalize "Female", "Male", and "Unknown" in the legend
+    scale_fill_manual(values = c("royalblue", "lightblue", "gray"),
+                      labels = c("Female", "Male", "Unknown"),
+                      name = "Reported Sex") +
+    
+    ggtitle(paste("CCLE Gene Expression of", gene_label, "by Reported Sex")) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    
+    # Add thresholds
+    geom_hline(yintercept = high_threshold, linetype = "dashed", color = "red") + 
+    geom_hline(yintercept = low_threshold, linetype = "dashed", color = "blue") +
+    
+    # Annotate with threshold values
+    annotate("text", x = 2, y = high_threshold, 
+             label = "Expressed: >= 10 TPM", color = "red", vjust = -0.5) +
+    annotate("text", x = 2, y = low_threshold, 
+             label = "Not Expressed: <= 1 TPM", color = "blue", vjust = -0.5) +
+    
+    # Add sample sizes at the top
+    geom_text(data = sample_sizes_unknown, aes(x = reported_sex_capitalized, y = max(gene_data_unknown$expression) + 0.5, 
+                                               label = paste0("n = ", n)), vjust = 0)
+  
+  # Save the plot as a PDF
+  ggsave(paste0("violin_plot_", gene_label, "_with_thresholds_including_unknown.pdf"), plot_unknown, 
+         width = 16, height = 10, units = "cm")
+  
+  # Save the plot as a PNG
+  ggsave(paste0("violin_plot_", gene_label, "_with_thresholds_including_unknown.png"), plot_unknown, 
+         width = 16, height = 10, units = "cm")
+}
+
+# Create violin plots for all genes with thresholds (including unknown sex)
+for (i in 1:length(log_gene_columns)) {
+  chosen_gene <- log_gene_columns[i]
+  
+  # Create the plot for the current gene, including unknown sex, and adding thresholds
+  create_violin_plot_with_thresholds_including_unknown(chosen_gene, 
+                                                       ccle_tpm_combined,
+                                                       low_threshold, high_threshold)
+}
+```
+
+```{r IndividualViolins}
+# Function to create individual violin plots for each gene with thresholds (only males and females)
+create_violin_plot_with_thresholds <- function(chosen_gene, 
+                                               data, 
+                                               low_threshold, high_threshold) {
+  
+  # Prepare the data for the chosen gene (log TPM values), filtering for males and females only
+  gene_data <- data.frame(
+    reported_sex = data$reported_sex,
+    expression = data[[chosen_gene]]
+  ) %>%
+    dplyr::filter(reported_sex %in% c("male", "female")) %>%  # Filter only males and females
+    mutate(reported_sex_capitalized = case_when(
+      reported_sex == "male" ~ "Male",
+      reported_sex == "female" ~ "Female"
+    ))
+  
+  # Clean up the gene name by removing the _TPM_Log1p10 suffix for y-axis label
+  gene_label <- gsub("_TPM_Log", "", chosen_gene)
+  
+  # Calculate sample sizes for each group
+  sample_sizes <- gene_data %>%
+    group_by(reported_sex_capitalized) %>%
+    summarise(n = n())
+  
+  # Plot the violin plot with thresholds
+  plot <- ggplot(gene_data, aes(x = reported_sex_capitalized, y = expression, fill = reported_sex_capitalized)) + 
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +  
+    geom_jitter(size = 0.25, width = 0.2) +  
+    ylab(paste0(gene_label, " Gene Expression (Log10(1 + TPM))")) + 
+    xlab("Reported Sex") +
+    theme_light() +
+    
+    # Capitalize "Female" and "Male" in the legend
+    scale_fill_manual(values = c("royalblue", "lightblue"),
+                      labels = c("Female", "Male"),
+                      name = "Reported Sex") +
+    
+    ggtitle(paste("CCLE Gene Expression of", gene_label, "by Reported Sex")) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    
+    # Add thresholds
+    geom_hline(yintercept = high_threshold, linetype = "dashed", color = "red") + 
+    geom_hline(yintercept = low_threshold, linetype = "dashed", color = "blue") +
+    
+    # Annotate with threshold values
+    annotate("text", x = 1.5, y = high_threshold, 
+             label = "Expressed: >= 10 TPM", color = "red", vjust = -0.5) +
+    annotate("text", x = 1.5, y = low_threshold, 
+             label = "Not Expressed: <= 1 TPM", color = "blue", vjust = -0.5) +
+    
+    # Add sample sizes at the top
+    geom_text(data = sample_sizes, aes(x = reported_sex_capitalized, y = max(gene_data$expression) + 0.5, 
+                                       label = paste0("n = ", n)), vjust = 0)
+  
+  # Save the plot as a PDF
+  ggsave(paste0("violin_plot_", gene_label, "_with_thresholds.pdf"), plot, 
+         width = 16, height = 10, units = "cm")
+  
+  # Save the plot as a PNG
+  ggsave(paste0("violin_plot_", gene_label, "_with_thresholds.png"), plot, 
+         width = 16, height = 10, units = "cm")
+}
+
+# Create violin plots for all genes with thresholds (only for males and females)
+for (i in 1:length(log_gene_columns)) {
+  chosen_gene <- log_gene_columns[i]
+  
+  # Create the plot for the current gene, filtering males and females, and adding thresholds
+  create_violin_plot_with_thresholds(chosen_gene, 
+                                     ccle_tpm_combined,
+                                     low_threshold, high_threshold)
+}
+```
+
+### Violin Plot of All Genes
+
+```{r FacetViolin}
+# Function to create a facet plot for all genes without thresholds (uniform y-axis and gene order maintained)
+create_facet_plot_no_thresholds <- function(data, gene_columns, gene_order) {
+  # Prepare the data by converting to long format and filter out "Unknown"
+  long_data <- data %>%
+    dplyr::select(reported_sex, all_of(gene_columns)) %>%
+    tidyr::pivot_longer(cols = -reported_sex, names_to = "Gene", values_to = "Expression") %>%
+    dplyr::filter(reported_sex %in% c("male", "female")) %>%  # Filter out "Unknown"
+    mutate(reported_sex_capitalized = case_when(
+      reported_sex == "male" ~ "Male",
+      reported_sex == "female" ~ "Female"
+    ))
+  
+  # Clean up gene names for facet labels
+  long_data$Gene <- gsub("_TPM_Log", "", long_data$Gene)
+  
+  # Maintain the specified order of genes
+  long_data$Gene <- factor(long_data$Gene, levels = gene_order)
+  
+  # Create the facet plot without thresholds
+  plot <- ggplot(long_data, aes(x = reported_sex_capitalized, y = Expression, fill = reported_sex_capitalized)) +
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+    geom_jitter(size = 0.25, width = 0.2) +
+    xlab("Reported Sex") +
+    ylab("Expression (Log10(1 + TPM))") +
+    scale_fill_manual(values = c("royalblue", "lightblue"),
+                      labels = c("Female", "Male"),
+                      name = "Reported Sex") +  # Capitalize legend labels
+    facet_wrap(~ Gene, scales = "fixed", ncol = 4) +  # Use fixed y-axis
+    ggtitle("CCLE Gene Expression for Sex Chromosome Genes") +
+    theme_light() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16),  # Center title
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),  # Rotate x-axis labels
+      axis.text.y = element_text(size = 12),  # Increase y-axis label size
+      axis.title.x = element_text(size = 14),  # Increase x-axis title size
+      axis.title.y = element_text(size = 14),  # Increase y-axis title size
+      legend.title = element_text(size = 14),  # Increase legend title size
+      legend.text = element_text(size = 12)  # Increase legend text size
+    )
+  
+  # Save the plot as a PDF with a 16x9 aspect ratio
+  ggsave("facet_plot_no_thresholds.pdf", plot, width = 16, height = 9)
+  
+  # Save the plot as a PNG with a 16x9 aspect ratio
+  ggsave("facet_plot_no_thresholds.png", plot, width = 16, height = 9)
+}
+
+# Create the facet plot without thresholds
+create_facet_plot_no_thresholds(ccle_tpm_combined, log_gene_columns, available_genes)
+
+```
+
+```{r FacetwithThresholds}
+# Function to create a facet plot for all genes with thresholds (uniform y-axis and gene order maintained)
+create_facet_plot_with_thresholds <- function(data, gene_columns, 
+                                              low_threshold, high_threshold, 
+                                              gene_order) {
+  # Prepare the data by converting to long format and filter out "Unknown"
+  long_data <- data %>%
+    dplyr::select(reported_sex, all_of(gene_columns)) %>%
+    tidyr::pivot_longer(cols = -reported_sex, names_to = "Gene", values_to = "Expression") %>%
+    dplyr::filter(reported_sex %in% c("male", "female")) %>%  # Filter out "Unknown"
+    mutate(reported_sex_capitalized = case_when(
+      reported_sex == "male" ~ "Male",
+      reported_sex == "female" ~ "Female"
+    ))
+  
+  # Clean up gene names for facet labels
+  long_data$Gene <- gsub("_TPM_Log", "", long_data$Gene)
+  
+  # Maintain the specified order of genes
+  long_data$Gene <- factor(long_data$Gene, levels = gene_order)
+  
+  # Create the facet plot with thresholds
+  plot <- ggplot(long_data, aes(x = reported_sex_capitalized, y = Expression, fill = reported_sex_capitalized)) +
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+    geom_jitter(size = 0.25, width = 0.2) +
+    geom_hline(yintercept = high_threshold, linetype = "dashed", 
+               color = "red") +  # High threshold line
+    geom_hline(yintercept = low_threshold, linetype = "dashed", 
+               color = "blue") +  # Low threshold line
+    xlab("Reported Sex") +
+    ylab("Expression (Log10(1 + TPM))") +
+    scale_fill_manual(values = c("royalblue", "lightblue"),
+                      labels = c("Female", "Male"),
+                      name = "Reported Sex") +  # Capitalize legend labels
+    facet_wrap(~ Gene, scales = "fixed", ncol = 4) +  # Use fixed y-axis
+    ggtitle("CCLE Gene Expression for Sex Chromosome Genes with Expression Thresholds") +
+    theme_light() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16),  # Center title
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),  # Rotate x-axis labels
+      axis.text.y = element_text(size = 12),  # Increase y-axis label size
+      axis.title.x = element_text(size = 14),  # Increase x-axis title size
+      axis.title.y = element_text(size = 14),  # Increase y-axis title size
+      legend.title = element_text(size = 14),  # Increase legend title size
+      legend.text = element_text(size = 12)  # Increase legend text size
+    )
+  
+  # Save the plot as a PDF with a 16x9 aspect ratio
+  ggsave("facet_plot_with_thresholds.pdf", plot, width = 16, height = 9)
+  
+  # Save the plot as a PNG with a 16x9 aspect ratio
+  ggsave("facet_plot_with_thresholds.png", plot, width = 16, height = 9)
+}
+
+# Create the facet plot with thresholds
+create_facet_plot_with_thresholds(ccle_tpm_combined, log_gene_columns, 
+                                  low_threshold, high_threshold, 
+                                  available_genes)
+```
+
+## Expression Table
+
+Here we will use the thresholds we came up with to categorize the expression levels of each cell line.
+
+```{r ExpressionTable}
+# Function to add gene expression data (TPM values, log TPM values, and expression levels) to the combined results
+add_gene_expression <- function(chosen_gene_log, low_threshold, high_threshold, combined_results) {
+  
+  # Strip the "_Log" suffix from the gene name to get the original TPM column name
+  chosen_gene <- sub("_Log$", "", chosen_gene_log)
+  
+  # Ensure the gene exists in the data
+  if (!(chosen_gene %in% colnames(ccle_tpm_combined))) {
+    message(paste("Gene", chosen_gene, "not found in the data. Skipping."))
+    return(combined_results)
+  }
+  
+  # Ensure the log-transformed gene exists in the data
+  if (!(chosen_gene_log %in% colnames(ccle_tpm_combined))) {
+    message(paste("Log-transformed gene", chosen_gene_log, "not found in the data. Skipping."))
+    return(combined_results)
+  }
+
+  # Select the expression values (TPM) for the chosen gene
+  tpm_values <- ccle_tpm_combined[[chosen_gene]]
+  
+  # Select the log TPM values
+  log_tpm_values <- ccle_tpm_combined[[chosen_gene_log]]
+  
+  # Categorize expression levels based on the TPM values
+  expression_level <- sapply(tpm_values, function(tpm_value) {
+    if (tpm_value >= 10) {
+      "expressed"
+    } else if (tpm_value <= 1) {
+      "not_expressed"
+    } else {
+      "intermediate"
+    }
+  })
+  
+  # Create a data frame with TPM values, log TPM values, and expression levels
+  gene_data <- data.frame(
+    CCLE_ID = rownames(ccle_tpm_combined),
+    TPM = tpm_values,
+    Log_TPM = log_tpm_values,
+    Expression_Level = expression_level
+  )
+  
+  # Rename the columns to include the gene name, stripping '_TPM' from the gene name
+  colnames(gene_data)[2:4] <- paste0(sub("_TPM", "", chosen_gene), 
+                                     c("_TPM", "_Log_TPM", "_Expression_Level"))
+
+  # Merge the gene data into the combined results
+  combined_results <- merge(combined_results, gene_data, 
+                            by = "CCLE_ID", all.x = TRUE)
+  return(combined_results)
+}
+
+# Initialize the combined results data frame with CCLE_ID, reported_sex, and pathology
+combined_results <- data.frame(CCLE_ID = rownames(ccle_tpm_combined), 
+                               reported_sex = ccle_tpm_combined$reported_sex,
+                               pathology = ccle_tpm_combined$pathology)
+
+# Add gene expression data for each gene in the order defined by log_gene_columns
+for (gene_log in log_gene_columns) {
+  # Add the expression data for each gene
+  combined_results <- add_gene_expression(gene_log, low_threshold, high_threshold, combined_results)
+}
+
+# Write the combined results to a CSV file
+write.csv(combined_results, "D:/CCLE_Project/data/combined_gene_expression_data.csv", row.names = FALSE)
+
+# View the combined results
+head(combined_results)
+```
+
+## Violin per Tissue
+
+```{r FilterXISTandDDX3Y}
+# Ensure row names are part of the data for both datasets
+ccle_tpm_combined$CCLE_ID <- rownames(ccle_tpm_combined)
+
+# Join ccle_tpm_combined with annotation_data using CCLE_ID and include Pathology
+combined_data <- ccle_tpm_combined %>%
+  left_join(annotation_data, by = "CCLE_ID") %>%
+  filter(!is.na(Site_Primary) & !is.na(type) & Pathology == "primary")  # Filter for primary pathology
+
+# Filter for XIST expression in females and DDX3Y expression in males, include Pathology for checking
+female_data <- combined_data %>%
+  filter(reported_sex == "female") %>%
+  dplyr::select(XIST_TPM_Log, Site_Primary, type, Pathology, CCLE_ID)
+
+male_data <- combined_data %>%
+  filter(reported_sex == "male") %>%
+  dplyr::select(DDX3Y_TPM_Log, Site_Primary, type, Pathology, CCLE_ID)
+```
+
+```{r NameandOrderTissues}
+# Function to format labels
+format_labels <- function(label) {
+  label <- gsub("\\.", ":", label)
+  label <- gsub("_", " ", label)
+  label <- tools::toTitleCase(label)
+  return(label)
+}
+
+# Prepare data for females
+female_data <- female_data %>%
+  mutate(Site_Type = paste(Site_Primary, type, sep = ":")) %>%
+  arrange(Site_Primary, type)
+
+# Prepare data for males
+male_data <- male_data %>%
+  mutate(Site_Type = paste(Site_Primary, type, sep = ":")) %>%
+  arrange(Site_Primary, type)
+
+# Create factor levels based on the sorted order
+female_levels <- unique(female_data$Site_Type)
+male_levels <- unique(male_data$Site_Type)
+
+# Update Site_Type as a factor with the new levels
+female_data$Site_Type <- factor(female_data$Site_Type, levels = female_levels)
+male_data$Site_Type <- factor(male_data$Site_Type, levels = male_levels)
+```
+
+
+```{r TissueViolins}
+# Create violin plot for XIST expression in females
+xist_plot <- ggplot(female_data, aes(x = Site_Type, y = XIST_TPM_Log, fill = "Female")) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_jitter(size = 0.25, width = 0.2) +
+  labs(title = "XIST Expression (Log TPM) in Females by Tissue and Cancer Type",
+       x = "Tissue and Cancer Type",
+       y = "XIST Expression (Log TPM)") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+        plot.margin = margin(t = 10, r = 10, b = 20, l = 50)) + # Increase the left margin
+  scale_x_discrete(labels = function(x) format_labels(x)) +
+  scale_fill_manual(name = "Sex", values = c("Female" = "royalblue"), labels = "Female")
+
+# Create violin plot for DDX3Y expression in males
+ddx3y_plot <- ggplot(male_data, aes(x = Site_Type, y = DDX3Y_TPM_Log, fill = "Male")) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_jitter(size = 0.25, width = 0.2) +
+  labs(title = "DDX3Y Expression (Log TPM) in Males by Tissue and Cancer Type",
+       x = "Tissue and Cancer Type",
+       y = "DDX3Y Expression (Log TPM)") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+        plot.margin = margin(t = 10, r = 10, b = 20, l = 50)) + # Increase the left margin
+  scale_x_discrete(labels = function(x) format_labels(x)) +
+  scale_fill_manual(name = "Sex", values = c("Male" = "lightblue"), labels = "Male")
+
+# Save the plots as PNG and PDF, with increased width
+ggsave("XIST_violin_plot_females_by_tissue_and_cancer.png", plot = xist_plot, width = 14, height = 6)
+ggsave("XIST_violin_plot_females_by_tissue_and_cancer.pdf", plot = xist_plot, width = 14, height = 6)
+
+ggsave("DDX3Y_violin_plot_males_by_tissue_and_cancer.png", plot = ddx3y_plot, width = 14, height = 6)
+ggsave("DDX3Y_violin_plot_males_by_tissue_and_cancer.pdf", plot = ddx3y_plot, width = 14, height = 6)
+
+# Print both plots side by side in R Markdown
+xist_plot
+ddx3y_plot
+```
+
+```{r ViolinwithSeparator}
+# Function to add vertical separators between different tissue types
+add_separators <- function(plot_data) {
+  # Get the x-axis positions where the tissue changes
+  tissue_changes <- which(diff(as.numeric(as.factor(plot_data$Site_Primary))) != 0)
+  tissue_changes <- tissue_changes + 0.5  # Adjust for position between violins
+  return(tissue_changes)
+}
+
+# Get separator positions for females (from previously defined female_data)
+female_separators <- add_separators(female_data)
+
+# Get separator positions for males (from previously defined male_data)
+male_separators <- add_separators(male_data)
+
+# Add vertical separators to the existing XIST plot for females
+xist_plot_with_separators <- xist_plot +
+  geom_vline(xintercept = female_separators, linetype = "dashed", color = "grey")  # Add separators
+
+# Add vertical separators to the existing DDX3Y plot for males
+ddx3y_plot_with_separators <- ddx3y_plot +
+  geom_vline(xintercept = male_separators, linetype = "dashed", color = "grey")  # Add separators
+
+# Save the updated plots as PNG and PDF, with increased width
+ggsave("XIST_violin_plot_females_with_separators.png", plot = xist_plot_with_separators, width = 14, height = 6)
+ggsave("XIST_violin_plot_females_with_separators.pdf", plot = xist_plot_with_separators, width = 14, height = 6)
+
+ggsave("DDX3Y_violin_plot_males_with_separators.png", plot = ddx3y_plot_with_separators, width = 14, height = 6)
+ggsave("DDX3Y_violin_plot_males_with_separators.pdf", plot = ddx3y_plot_with_separators, width = 14, height = 6)
+
+# Print both plots side by side in R Markdown
+xist_plot_with_separators
+ddx3y_plot_with_separators
+
+```
+
+
+## List all the packages used for future reference
+
+```{r SessionInfo}
+sessionInfo()
+```
