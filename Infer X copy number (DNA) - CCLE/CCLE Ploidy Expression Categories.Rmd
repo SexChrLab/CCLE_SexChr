@@ -1,0 +1,248 @@
+---
+title: "CCLE Ploidy Expression Categories"
+author: "Teagen Allen"
+date: "2024-09-26"
+output: html_document
+---
+
+```{r libraries}
+library(ggplot2)
+library(dplyr)
+library(UpSetR)
+
+```
+
+
+#### Directories
+Set the working directory and data directory paths.
+
+```{r directories}
+# Set working and data directories
+working_directory <- "C:/Users/teage/Documents/CCLE_LoY"  
+data_directory <- "C:/Users/teage/Documents/CCLE_LoY/data/"
+output_directory = "C:/Users/teage/Documents/CCLE_LoY/output/"
+
+# Set working directory
+setwd(working_directory)
+
+```
+
+#### Data Loading
+Read the gene expression data and the supplemental table from the CSV files.
+
+```{r data}
+library(readr)
+
+#chrY_gene_expression <- read_csv(data_directory/"chrY_gene_expression_annotated.csv")
+Supplemental_Table_S1_cleaned <- read_csv("data/Supplemental_Table_S1_cleaned.csv")
+expression_factor <- read.csv(paste0(data_directory,"ccle_individual_scc.csv"), header = TRUE)
+
+```
+
+
+```{r}
+# Rename 'CCLE_ID' to 'cell_line' in the expression_factor data frame
+expression_factor <- expression_factor %>%
+  rename(cell_line = CCLE_ID)
+```
+
+```{r}
+# Join the two data frames by 'cell_line'
+merged_data <- inner_join(Supplemental_Table_S1_cleaned, expression_factor, by = "cell_line")
+
+# Subset the data to only keep the ploidy and expression columns
+expression_data <- merged_data %>%
+  select(cell_line, Biological_sex, X_ploidy, Y_ploidy, X_expression, Y_expression, Y_expression_status, RPS4Y1_Expression_Level, ZFY_Expression_Level, USP9Y_Expression_Level, UTY_Expression_Level, DDX3Y_Expression_Level, KDM5D_Expression_Level, EIF1AY_Expression_Level)
+
+expression_data <- expression_data %>% filter(!is.na(X_ploidy))
+expression_data <- expression_data %>% filter(!is.na(Y_ploidy))
+  
+```
+
+```{r}
+# Convert 'Y_expression_status' to a factor
+expression_data$Y_expression_status <- factor(expression_data$Y_expression_status, 
+                                              levels = c("not_expressed", "intermediate", "expressed"))
+
+# Convert 'X_ploidy' and 'Y_ploidy' to factors if they represent categorical data
+expression_data$X_ploidy <- factor(expression_data$X_ploidy)
+expression_data$Y_ploidy <- factor(expression_data$Y_ploidy)
+
+
+```
+
+
+```{r}
+# Stacked bar plot of Y_expression_status by Y_ploidy with counts
+ggplot(expression_data, aes(x = Y_ploidy, fill = Y_expression)) +
+  geom_bar(position = "stack") +  # Stack the bars
+  geom_text(stat = 'count', aes(label = after_stat(count)), 
+            position = position_stack(vjust = 0.5), size = 3) +  # Adding counts in the middle of the stacks
+  scale_fill_manual(values = c("not_expressed" = "#E69F00", 
+                               "intermediate" = "#56B4E9", 
+                               "expressed" = "#009E73")) +  # Custom colors
+  labs(title = "Counts of Y Expression Status by Y Ploidy", 
+       x = "Y Ploidy", 
+       y = "Count") +  # Change y-axis label to 'Count'
+  theme_minimal() +
+  theme(legend.position = "right")
+
+
+
+```
+
+```{r}
+# Stacked bar plot of XIST_expression_status by X_ploidy with counts
+ggplot(expression_data, aes(x = X_ploidy, fill = X_expression)) +
+  geom_bar(position = "stack") +  # Stack the bars
+  geom_text(stat = 'count', aes(label = after_stat(count)), 
+            position = position_stack(vjust = 0.5), size = 3) +  # Adding counts in the middle of the stacks
+  scale_fill_manual(values = c("not_expressed" = "#E69F00", 
+                               "intermediate" = "#56B4E9", 
+                               "expressed" = "#009E73")) +  # Custom colors
+  labs(title = "Counts of XIST Expression Status by X Ploidy", 
+       x = "X Ploidy", 
+       y = "Count") +  # Change y-axis label to 'Count'
+  theme_minimal() +
+  theme(legend.position = "right")
+
+```
+
+
+```{r}
+# List of Y gene expression columns
+y_genes <- c("RPS4Y1_Expression_Level", "ZFY_Expression_Level", 
+             "USP9Y_Expression_Level", "UTY_Expression_Level", 
+             "DDX3Y_Expression_Level", "KDM5D_Expression_Level", 
+             "EIF1AY_Expression_Level")
+
+# Function to create a stacked bar plot for each Y gene showing counts with labels
+create_stacked_bar_plot <- function(gene_col) {
+  ggplot(expression_data, aes_string(x = "Y_ploidy", fill = gene_col)) +
+    geom_bar(position = "stack") +  # Use "stack" to show counts
+    scale_fill_manual(values = c("not_expressed" = "#E69F00", 
+                                 "intermediate" = "#56B4E9", 
+                                 "expressed" = "#009E73")) +  # Custom colors
+    labs(title = paste("Counts of", gene_col, "by Y Ploidy"),  # Update title to reflect counts
+         x = "Y Ploidy", 
+         y = "Count") +  # Change y-axis label to "Count"
+    theme_minimal() +
+    theme(legend.position = "right") +
+    geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+}
+
+# Loop over each Y gene and generate the plot
+for (gene in y_genes) {
+  plot <- create_stacked_bar_plot(gene)
+  
+  # Save each plot to the output directory
+  ggsave(filename = file.path(output_directory, paste0("count_stacked_bar_", gene, ".png")), 
+         plot = plot)
+  
+  # Print the plot if you'd like to see it in RMarkdown output (optional)
+  print(plot)
+}
+
+
+
+```
+
+```{r}
+# Subset data for males and females
+male_data <- expression_data %>% filter(Biological_sex == "Male")
+male_data <- male_data %>% filter(!is.na(X_ploidy))  # Remove rows where X_ploidy is NA
+  
+female_data <- expression_data %>% filter(Biological_sex == "Female")
+female_data <- female_data %>% filter(!is.na(X_ploidy))  # Remove rows where X_ploidy is NA
+  
+
+```
+
+```{r}
+# Stacked bar plot for Y_expression by Y_ploidy for males
+male_y_expression_plot <- ggplot(male_data, aes(x = Y_ploidy, fill = Y_expression)) +
+  geom_bar(position = "stack") +  # Use "stack" for counts
+  scale_fill_manual(values = c("not_expressed" = "mediumpurple1", 
+                               "intermediate" = "grey", 
+                               "expressed" = "lightgreen")) +  # Custom colors
+  labs(title = "Counts of Y Expression by Y Ploidy in Males",  # Update title to reflect counts
+       x = "Y Ploidy", 
+       y = "Count") +  # Change y-axis label to "Count"
+  theme_minimal() +
+  theme(legend.position = "right") +
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+
+# Save the plot to the output directory
+ggsave(filename = file.path(output_directory, "male_count_stacked_bar_Y_expression.png"), 
+       plot = male_y_expression_plot)
+
+# Optional: Print plot to display in RMarkdown output
+print(male_y_expression_plot)
+
+```
+
+```{r}
+# Function to create stacked bar plot for Y genes in males
+create_y_plot <- function(gene_col) {
+  ggplot(male_data, aes_string(x = "Y_ploidy", fill = gene_col)) +
+    geom_bar(position = "stack") +  # Change to stack for counts
+    scale_fill_manual(values = c("not_expressed" = "mediumpurple1", 
+                               "intermediate" = "grey", 
+                               "expressed" = "lightgreen")) + 
+    labs(title = paste("Counts of", gene_col, "by Y Ploidy in Males"),  # Update title for counts
+         x = "Y Ploidy", 
+         y = "Count") +  # Change y-axis label to "Count"
+    theme_minimal() +
+    theme(legend.position = "right") +
+    geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+}
+
+# Generate and save plots for Y genes in males
+for (gene in y_genes) {
+  plot <- create_y_plot(gene)
+  ggsave(filename = file.path(output_directory, paste0("male_count_stacked_bar_", gene, ".png")), plot = plot)
+  print(plot)  # Optional for viewing the plots in RMarkdown output
+}
+
+
+```
+
+```{r}
+# Function to create stacked bar plot for X genes in males and females
+create_x_plot <- function(data, gene_col, sex) {
+  ggplot(data, aes_string(x = "X_ploidy", fill = gene_col)) +
+    geom_bar(position = "stack") +  # Change to stack for counts
+    scale_fill_manual(values = c("not_expressed" = "mediumpurple1", 
+                                 "intermediate" = "grey", 
+                                 "expressed" = "lightgreen")) + 
+    labs(title = paste("Counts of XIST Expression by X Ploidy in", sex),  # Update title for counts
+         x = "X Ploidy", 
+         y = "Count") +  # Change y-axis label to "Count"
+    theme_minimal() +
+    theme(legend.position = "right") +
+    geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+}
+
+# Generate and save X gene plots for males
+for (gene in c("X_expression")) {
+  male_plot <- create_x_plot(male_data, gene, "Males")
+  ggsave(filename = file.path(output_directory, paste0("male_count_stacked_bar_X_purple_green", gene, ".png")), plot = male_plot)
+  print(male_plot)  # Optional for viewing in RMarkdown output
+}
+
+# Generate and save X gene plots for females
+for (gene in c("X_expression")) {
+  female_plot <- create_x_plot(female_data, gene, "Females")
+  ggsave(filename = file.path(output_directory, paste0("female_count_stacked_bar_X_purple_green", gene, ".png")), plot = female_plot)
+  print(female_plot)  # Optional for viewing in RMarkdown output
+}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```

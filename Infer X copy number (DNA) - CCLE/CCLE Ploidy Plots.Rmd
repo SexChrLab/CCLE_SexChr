@@ -179,7 +179,7 @@ create_gene_violin_plot_by_sex <- function(data, gene_expression, ploidy, remove
   data$spaced_interaction <- as.factor(paste(data$interaction, " ", sep = ""))
 
   ggplot(data, aes(x = spaced_interaction, y = !!sym(gene_expression), fill = Biological_sex)) + 
-    geom_violin(width = 0.8, hight = 0, scale = "width", aes(fill = Biological_sex)) +  # Adjust width for better appearance
+    geom_violin(width = 0.8, scale = "width", aes(fill = Biological_sex)) +  # Adjust width for better appearance
     geom_jitter(width = 0.2, aes(x = spaced_interaction, y = !!sym(gene_expression) , color = Biological_sex)) +  # Add points with jitter
     labs(
       title = paste("Distribution of", gene_expression, "by Reported Sex and Ploidy"),
@@ -199,54 +199,111 @@ create_gene_violin_plot_by_sex <- function(data, gene_expression, ploidy, remove
 ```
 
 ```{r}
+# Function to create violin plots with summary statistics for gene expression variables by sex and ploidy
+create_gene_violin_plot_with_stats <- function(data, gene_expression, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+
+  # Filter out rows with "Miss-classification" in Biological_sex
+  data <- data[!is.na(data$Biological_sex) & data$Biological_sex != "Miss_classification", ]
+
+  # Create an interaction variable for plotting
+  data$interaction <- interaction(data$Biological_sex, data[[ploidy]], sep = "_")
+
+  # Calculate summary statistics: mean, median, and SD for each group
+  summary_stats <- data %>%
+    group_by(interaction) %>%
+    summarise(
+      mean_value = mean(!!sym(gene_expression), na.rm = TRUE),
+      median_value = median(!!sym(gene_expression), na.rm = TRUE),
+      sd_value = sd(!!sym(gene_expression), na.rm = TRUE),
+      max_value = max(!!sym(gene_expression), na.rm = TRUE)  # Added max value for label placement
+    ) %>%
+    ungroup() %>%
+    mutate(label = paste0("Mean: ", round(mean_value, 2), 
+                          "\nMedian: ", round(median_value, 2), 
+                          "\nSD: ", round(sd_value, 2)))
+
+  # Create spaced interaction for better x-axis labeling
+  data$spaced_interaction <- as.factor(paste(data$interaction, " ", sep = ""))
+  summary_stats$spaced_interaction <- as.factor(paste(summary_stats$interaction, " ", sep = ""))
+
+  # Create the plot
+  plot <- ggplot(data, aes(x = spaced_interaction, y = !!sym(gene_expression), fill = Biological_sex)) + 
+    geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
+    geom_jitter(width = 0.2, aes(color = Biological_sex)) +  # Add points with jitter
+    labs(
+      title = paste("Distribution of", gene_expression, "by Reported Sex and Ploidy"),
+      x = "Reported Sex and Ploidy Status",
+      y = paste("Log-transformed Expression of", gene_expression)
+    ) +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA), 
+                       limits = c(NA, max(summary_stats$max_value) + 0.5)) +  # Set upper limit with padding
+    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), 
+                      name = "Reported Sex") +
+    scale_color_manual(values = c("Female" = "black", "Male" = "black"), 
+                       name = "Reported Sex") +  # Add a color scale for points
+    scale_x_discrete(name = "Reported Sex and Ploidy Status") +
+    geom_text(data = summary_stats, aes(x = spaced_interaction, y = max_value + 0.1,  # Place above max_value
+                                         label = label), 
+              vjust = 0, size = 3.5, color = "black", inherit.aes = FALSE)  # Use inherit.aes = FALSE
+
+  return(plot)
+}
+
+# Use the function
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_KDM5D", "Y_ploidy")
 
 
 ```
 
 ```{r Plot Y Ploidy na.omit}
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_KDM5D", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_DDX3Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_EIF1AY", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_NLGN4Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_RPS4Y1", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_TMSB4Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_USP9Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_UTY", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_ZFY", "Y_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_XIST", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_KDM5D", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_DDX3Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_EIF1AY", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_NLGN4Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_RPS4Y1", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_TMSB4Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_USP9Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_UTY", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_ZFY", "Y_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_XIST", "Y_ploidy")
 ```
 
 ```{r Plot X Ploidy na.omit}
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_KDM5D", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_DDX3Y", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_EIF1AY", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_NLGN4Y", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_RPS4Y1", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_TMSB4Y", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_USP9Y", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_UTY", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_ZFY", "X_ploidy")
-create_gene_violin_plot_by_sex(expression_ploidy_data, "log_XIST", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_KDM5D", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_DDX3Y", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_EIF1AY", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_NLGN4Y", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_RPS4Y1", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_TMSB4Y", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_USP9Y", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_UTY", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_ZFY", "X_ploidy")
+create_gene_violin_plot_with_stats(expression_ploidy_data, "log_XIST", "X_ploidy")
 ```
 
 ```{r}
-create_gene_violin_plot_by_sex(male_data, "log_KDM5D", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_DDX3Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_EIF1AY", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_NLGN4Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_RPS4Y1", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_TMSB4Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_USP9Y", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_UTY", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_ZFY", "Y_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_XIST", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_KDM5D", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_DDX3Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_EIF1AY", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_NLGN4Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_RPS4Y1", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_TMSB4Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_USP9Y", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_UTY", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_ZFY", "Y_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_XIST", "Y_ploidy")
 
 ```
 
 ```{r}
-create_gene_violin_plot_by_sex(male_data, "log_KDM5D", "X_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_DDX3Y", "X_ploidy")
-create_gene_violin_plot_by_sex(male_data, "log_EIF1AY", "X_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_KDM5D", "X_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_DDX3Y", "X_ploidy")
+create_gene_violin_plot_with_stats(male_data, "log_EIF1AY", "X_ploidy")
 create_gene_violin_plot_by_sex(male_data, "log_NLGN4Y", "X_ploidy")
 create_gene_violin_plot_by_sex(male_data, "log_RPS4Y1", "X_ploidy")
 create_gene_violin_plot_by_sex(male_data, "log_TMSB4Y", "X_ploidy")
@@ -361,6 +418,67 @@ for (gene in genes) {
 ```
 
 ```{r}
+# Run the function for each gene for Y_ploidy and save the plots
+genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y", 
+           "log_RPS4Y1", "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY", "log_XIST")
+
+# Create and save plots for each gene
+for (gene in genes) {
+  all_data_plot <- create_gene_violin_plot_with_stats(expression_ploidy_data, gene, "Y_ploidy")
+  
+  # Save the plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0(gene, "_Y_ploidy_sex_violin_plot_stats.png")), plot = all_data_plot, width = 8, height = 6)
+}
+
+# Run the function for each gene for X_ploidy and save the plots
+for (gene in genes) {
+  all_data_plot <- create_gene_violin_plot_with_stats(expression_ploidy_data, gene, "X_ploidy")
+  
+  # Save the plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0("All_", gene, "_X_ploidy_violin_plot_stats.png")), 
+         plot = all_data_plot, width = 8, height = 6)
+}
+
+# Create and save plots for males
+for (gene in genes) {
+  male_plot <- create_gene_violin_plot_with_stats(male_data, gene, "Y_ploidy")
+  
+  # Save the male plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_Y_ploidy_violin_plot_stats.png")), 
+         plot = male_plot, width = 8, height = 6)
+}
+
+# Create and save plots for females
+for (gene in genes) {
+  female_plot <- create_gene_violin_plot_with_stats(female_data, gene, "Y_ploidy")
+  
+  # Save the female plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_Y_ploidy_violin_plot_stats.png")), 
+         plot = female_plot, width = 8, height = 6)
+}
+
+# Create and save plots for males for X_ploidy
+for (gene in genes) {
+  male_plot <- create_gene_violin_plot_with_stats(male_data, gene, "X_ploidy")
+  
+  # Save the male plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_X_ploidy_violin_plot_stats.png")), 
+         plot = male_plot, width = 8, height = 6)
+}
+
+# Create and save plots for females for X_ploidy
+for (gene in genes) {
+  female_plot <- create_gene_violin_plot_with_stats(female_data, gene, "X_ploidy")
+  
+  # Save the female plot to a PNG file
+  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_X_ploidy_violin_plot_stats.png")), 
+         plot = female_plot, width = 8, height = 6)
+}
+
+
+```
+
+```{r}
 # Function to create faceted violin plots for multiple gene expression variables by sex
 create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
   # Optionally filter out rows where ploidy is NA
@@ -376,7 +494,8 @@ create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
              "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY", "log_XIST")
 
   # Convert the data to long format for faceting
-  data_long <- tidyr::pivot_longer(data, cols = all_of(genes), names_to = "gene_expression", values_to = "expression_value")
+  data_long <- tidyr::pivot_longer(data, cols = all_of(genes), 
+                                   names_to = "gene_expression", values_to = "expression_value")
 
   # Create spaced interaction for x-axis
   data_long$spaced_interaction <- as.factor(paste(data_long$Biological_sex, data_long[[ploidy]], " ", sep = ""))
@@ -384,12 +503,15 @@ create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
   # Plot the data with faceting by gene
   ggplot(data_long, aes(x = spaced_interaction, y = expression_value, fill = Biological_sex)) + 
     geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
+    geom_jitter(width = 0.2, aes(x = spaced_interaction, y = expression_value, color = Biological_sex), 
+                size = 0.5) +  # Add points with jitter and smaller size
     labs(
       title = "Distribution of Gene Expression by Reported Sex and Ploidy",
       x = "Reported Sex and Ploidy Status",
       y = "Log-transformed Expression"
     ) +
-    scale_fill_manual(values = c("Female" = "darkblue", "Male" = "lightblue"), name = "Reported Sex") + 
+    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), name = "Reported Sex") +
+    scale_color_manual(values = c("Female" = "black", "Male" = "black"), name = "Reported Sex") +  # Add a color scale for points
     theme_minimal() +
     scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +
     scale_x_discrete(name = "Reported Sex and Ploidy Status") +
@@ -397,15 +519,65 @@ create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
     facet_wrap(~ gene_expression, scales = "free_y")  # Facet by gene expression
 }
 
+
 ```
 
 ```{r}
-# Create faceted violin plot for all data
-all_data_plot <- create_faceted_violin_plot(expression_ploidy_data, "Y_ploidy")
+# Function to create faceted violin plots for multiple gene expression variables by sex with summary statistics
+create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
 
-all_data_plot
+  # Filter out rows with "Miss-classification" in Biological_sex
+  data <- data[data$Biological_sex != "Miss_classification", ]
+
+  # List of genes to be plotted
+  genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y", "log_RPS4Y1", 
+             "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY", "log_XIST")
+
+  # Convert the data to long format for faceting
+  data_long <- tidyr::pivot_longer(data, cols = all_of(genes), 
+                                     names_to = "gene_expression", values_to = "expression_value")
+
+  # Create spaced interaction for x-axis
+  data_long$spaced_interaction <- as.factor(paste(data_long$Biological_sex, data_long[[ploidy]], " ", sep = ""))
+
+  # Calculate summary statistics
+  summary_stats <- data_long %>%
+    group_by(gene_expression, Biological_sex, spaced_interaction) %>%
+    summarise(mean_value = mean(expression_value, na.rm = TRUE),
+              sd_value = sd(expression_value, na.rm = TRUE),
+              .groups = 'drop') 
+
+  # Plot the data with faceting by gene
+  ggplot(data_long, aes(x = spaced_interaction, y = expression_value, fill = Biological_sex)) + 
+    geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
+    geom_jitter(width = 0.2, aes(x = spaced_interaction, y = expression_value, color = Biological_sex), 
+                size = 0.5) +  # Add points with jitter and smaller size
+    labs(
+      title = "Distribution of Gene Expression by Reported Sex and Ploidy",
+      x = "Reported Sex and Ploidy Status",
+      y = "Log-transformed Expression"
+    ) +
+    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), name = "Reported Sex") +
+    scale_color_manual(values = c("Female" = "black", "Male" = "black"), name = "Reported Sex") +  # Add a color scale for points
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +
+    scale_x_discrete(name = "Reported Sex and Ploidy Status") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~ gene_expression, scales = "free_y") +  # Facet by gene expression
+    geom_text(data = summary_stats, aes(x = spaced_interaction, y = mean_value + sd_value, 
+                                         label = paste("Mean:", round(mean_value, 2), "\nSD:", round(sd_value, 2))),
+              position = position_dodge(width = 0.8), 
+              size = 3, vjust = -0.5, color = "black", check_overlap = TRUE)  # Add summary stats as text
+}
+
 
 ```
+
+
 ```{r}
 # Create faceted violin plot for all data
 all_data_Y_plot <- create_faceted_violin_plot(expression_ploidy_data, "Y_ploidy")
