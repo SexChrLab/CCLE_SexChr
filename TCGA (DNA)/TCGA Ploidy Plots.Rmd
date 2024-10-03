@@ -1,0 +1,248 @@
+---
+title: "TCGA Ploidy Plots"
+author: "Teagen Allen"
+date: "2024-09-24"
+output: html_document
+---
+
+Project Overview
+This project analyzes gene expression data from the Cancer Cell Line Encyclopedia (CCLE) and copy number data for sex chromosomes from the paper "Gene Essentiatlity" by Shohat et al., 2022. The goal is to explore the relationship between gene expression and the ploidy of sex chromosomes.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries
+The libraries used in this analysis include `ggplot2` for plotting and `readr` for reading CSV files.
+
+```{r libraries}
+library(ggplot2)
+library(dplyr)
+library(readr)
+
+```
+
+#### Directories
+Set the working directory and data directory paths.
+
+```{r directories}
+# Set working and data directories
+working_directory <- "C:/Users/teage/Documents/CCLE_LoY"  
+data_directory <- "C:/Users/teage/Documents/CCLE_LoY/data/"
+output_directory = "C:/Users/teage/Documents/CCLE_LoY/output/"
+
+# Set working directory
+setwd(working_directory)
+
+```
+
+#### Data Loading
+
+```{r}
+# Data loading
+# loading TCGA RNA data pulled from TCGA Biolinks package
+tcga_data <- read.csv(file.path(data_directory, "TCGA_RNA_data_all.csv"))
+male_LoY_data <- read_csv(file.path(data_directory, "SA1_male_LoY_TCGA.csv"))
+female_LoX_data <- read_csv(file.path(data_directory, "SA2_female_LoX_TCGA.csv"))
+
+```
+
+```{r Prepping TCGA Data}
+# Create a new ID column by removing the trailing A or B
+tcga_data$new_id <- sub("[AB]$", "", tcga_data$sample)
+
+# Find duplicates in the new_id column
+duplicates <- tcga_data[duplicated(tcga_data$new_id) | duplicated(tcga_data$new_id, fromLast = TRUE), ]
+
+# Resolve duplicates by selecting the first alphabetically in the 'barcode' column
+tcga_data_no_duplicates <- tcga_data %>%
+  group_by(new_id) %>%
+  slice_min(barcode) %>%
+  ungroup()
+
+```
+
+
+
+```{r}
+# Merge male and female data
+combined_data <- bind_rows(male_LoY_data, female_LoX_data)
+
+```
+
+Merging TCGA Expression Data with LoY and LoX data
+
+```{r Data Merging}
+
+# Data merging
+combined_data <- merge(combined_data, tcga_data, 
+                                 by.x = "case_tcga_sample_id", 
+                                 by.y = "new_id")
+
+
+```
+
+```{r}
+# Data cleaning and subsetting
+columns_to_keep <- grep("case_tcga_sample_id|sex|Y_status|X_status|XIST|DDX3Y|EIF1AY|KDM5D|NLGN4Y|RPS4Y1|TMSB4Y|USP9Y|UTY|ZFY", 
+                             colnames(combined_data), value = TRUE)
+                                
+tcga_expression_data <- combined_data[, columns_to_keep]
+
+
+```
+
+```{r add log1p transformations to the columns}
+
+# Add log-transformed gene expression columns
+tcga_expression_data <- tcga_expression_data %>%
+  mutate(across(c("XIST", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "RPS4Y1", "TMSB4Y", "USP9Y", "UTY", "ZFY"),
+                log1p,
+                .names = "log_{col}"))
+
+
+```
+
+```{r}
+# Subset data into male and female
+male_data <- tcga_expression_data[tcga_expression_data$sex == "male", ]
+female_data <- tcga_expression_data[tcga_expression_data$sex == "female", ]
+
+```
+
+```{r}
+# Function to create violin plots with points for gene expression variables by Y ploidy
+create_gene_violin_plot_by_sex <- function(data, gene_expression, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  
+  # Filter out rows with "Miss-classification" in sex
+  data <- data[data$sex != "Miss-classification", ]
+  
+  # Create an interaction variable for plotting
+  data$interaction <- interaction(data$sex, data[[ploidy]], sep = "_")
+  
+  # Create spaced interaction by adding a space level
+  data$spaced_interaction <- as.factor(paste(data$interaction, " ", sep = ""))
+  
+  # Create the violin plot
+  ggplot(data, aes(x = spaced_interaction, y = !!sym(gene_expression), fill = sex)) + 
+    geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
+    geom_jitter(width = 0.3, aes(color = sex), size = 0.5) +  # Add points with jitter
+    labs(
+      title = paste("Distribution of", gene_expression, "by Reported Sex and Y Ploidy"),
+      x = "Reported Sex and Y Ploidy Status",
+      y = paste("Log-transformed Expression of", gene_expression)
+    ) +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +  # Handle NA values in y-axis labels
+    scale_fill_manual(values = c("female" = "royalblue", "male" = "lightblue"), 
+                      name = "Reported Sex") +
+    scale_color_manual(values = c("female" = "black", "male" = "black"), 
+                       name = "Reported Sex") +  # Add a color scale for points
+    scale_x_discrete(name = "Reported Sex and Y Ploidy Status")
+}
+
+```
+
+```{r}
+# Function to create violin plots with points for gene expression variables by Y ploidy with summary statistics
+create_gene_violin_plot_with_stats <- function(data, gene_expression, ploidy, remove_na = TRUE) {
+  # Optionally filter out rows where ploidy is NA
+  if (remove_na) {
+    data <- data[!is.na(data[[ploidy]]), ]
+  }
+  
+  # Create an interaction variable for plotting
+  data$interaction <- interaction(data$sex, data[[ploidy]], sep = "_")
+  
+  # Create spaced interaction by adding a space level
+  data$spaced_interaction <- as.factor(paste(data$interaction, " ", sep = ""))
+  
+  # Calculate summary statistics
+  summary_stats <- data %>%
+    group_by(interaction, sex) %>%
+    summarise(
+      mean_value = mean(!!sym(gene_expression), na.rm = TRUE),
+      median_value = median(!!sym(gene_expression), na.rm = TRUE),
+      sd_value = sd(!!sym(gene_expression), na.rm = TRUE),
+      max_value = max(!!sym(gene_expression), na.rm = TRUE),  # Calculate max value for positioning
+      .groups = 'drop'
+    ) %>%
+    mutate(spaced_interaction = as.factor(paste(interaction, " ", sep = "")))  # Create spaced interaction for summary
+
+  # Determine the overall max value for setting y-axis limits
+  overall_max <- max(data[[gene_expression]], na.rm = TRUE) + 1
+  
+  # Set y-axis limit to accommodate the max value + 0.1
+  y_limit_upper <- overall_max + 0.1  # Adjust to provide space above max value
+
+  # Create the violin plot
+  ggplot(data, aes(x = spaced_interaction, y = !!sym(gene_expression), fill = sex)) + 
+    geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
+    geom_jitter(width = 0.3, aes(color = sex), size = 0.5) +  # Add points with jitter
+    labs(
+      title = paste("Distribution of", gene_expression, "by Reported Sex and Y Ploidy"),
+      x = "Reported Sex and Y Ploidy Status",
+      y = paste("Log-transformed Expression of", gene_expression)
+    ) +
+    theme_minimal() +
+    scale_y_continuous(limits = c(0, y_limit_upper), labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +  # Set limits to ensure text is visible
+    scale_fill_manual(values = c("female" = "royalblue", "male" = "lightblue"), 
+                      name = "Reported Sex") +
+    scale_color_manual(values = c("female" = "black", "male" = "black"), 
+                       name = "Reported Sex") +  # Add a color scale for points
+    scale_x_discrete(name = "Reported Sex and Y Ploidy Status") +
+    geom_text(data = summary_stats, 
+              aes(x = spaced_interaction, y = max_value + 0.1,  # Position text at max value + 0.1
+                  label = paste("Mean:", round(mean_value, 2), "\nMedian:", round(median_value, 2), "\nSD:", round(sd_value, 2))),
+              position = position_dodge(width = 0.8), 
+              size = 3, vjust = -0.5, color = "black", check_overlap = TRUE)  # Add summary stats as text
+}
+
+
+```
+
+
+```{r}
+# List of gene expression variables to plot
+gene_list <- c("log_DDX3Y", "log_EIF1AY", "log_KDM5D", "log_NLGN4Y", "log_RPS4Y1", "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY")
+
+# Create and save plots for each gene
+for (gene in gene_list) {
+  # Create violin plot for male data
+  male_plot <- create_gene_violin_plot_by_sex(male_data, gene, "Y_status")
+  ggsave(filename = file.path(output_directory, paste0("TCGA_male_", gene, "_violin_plot.png")), plot = male_plot)
+}
+
+```
+
+```{r}
+
+female_plot <- create_gene_violin_plot_by_sex(female_data, "log_XIST", "X_status")
+ggsave(filename = file.path(output_directory, paste0("TCGA_female_XIST_violin_plot.png")), plot = female_plot)
+
+```
+
+```{r}
+# List of gene expression variables to plot
+gene_list <- c("log_DDX3Y", "log_EIF1AY", "log_KDM5D", "log_NLGN4Y", "log_RPS4Y1", "log_TMSB4Y", "log_USP9Y", "log_UTY", "log_ZFY")
+
+# Create and save plots for each gene
+for (gene in gene_list) {
+  # Create violin plot for male data
+  male_plot_with_stats <- create_gene_violin_plot_with_stats(male_data, gene, "Y_status")
+  ggsave(filename = file.path(output_directory, paste0("TCGA_male_", gene, "_violin_plot_with_stats.png")), plot = male_plot_with_stats)
+}
+
+```
+
+```{r}
+
+female_plot_with_stats <- create_gene_violin_plot_with_stats(female_data, "log_XIST", "X_status")
+ggsave(filename = file.path(output_directory, paste0("TCGA_female_XIST_violin_plot_with_stats.png")), plot = female_plot_with_stats)
+
+```
+

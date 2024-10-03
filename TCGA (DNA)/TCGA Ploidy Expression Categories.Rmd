@@ -1,0 +1,195 @@
+---
+title: "TCGA Ploidy Expression Categories"
+author: "Teagen Allen"
+date: "2024-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Libraries
+The libraries used in this analysis include `ggplot2` for plotting and `readr` for reading CSV files.
+
+```{r libraries}
+library(ggplot2)
+library(dplyr)
+library(readr)
+
+```
+
+#### Directories
+Set the working directory and data directory paths.
+
+```{r directories}
+# Set working and data directories
+working_directory <- "C:/Users/teage/Documents/CCLE_LoY"  
+data_directory <- "C:/Users/teage/Documents/CCLE_LoY/data/"
+output_directory = "C:/Users/teage/Documents/CCLE_LoY/output/"
+
+# Set working directory
+setwd(working_directory)
+
+```
+
+#### Data Loading
+Read the gene expression data and the supplemental table from the CSV files.
+
+```{r data}
+# loading TCGA RNA data pulled from TCGA Biolinks package
+library(readr)
+male_LoY_data <- read_csv(file.path(data_directory, "SA1_male_LoY_TCGA.csv"))
+female_LoX_data <- read_csv(file.path(data_directory, "SA2_female_LoX_TCGA.csv"))
+complement_data <- read_csv(file.path(data_directory, "inferred_sex_chromosome_complement-2.csv"))
+
+```
+
+
+
+```{r}
+# Merge male and female data
+combined_data <- bind_rows(male_LoY_data, female_LoX_data)
+
+# Data cleaning and subsetting
+columns_to_keep <- grep("case_id|Y_status|X_status", 
+                             colnames(combined_data), value = TRUE)
+                                
+combined_data <- combined_data[, columns_to_keep]
+
+```
+
+Merging TCGA Expression Data with LoY and LoX data
+
+```{r Data Merging}
+
+combined_data <- merge(combined_data, complement_data, 
+                                 by.x = "case_id", 
+                                 by.y = "cases.submitter_id")
+
+```
+
+
+```{r}
+# Data cleaning and subsetting
+columns_to_keep <- grep("case_tcga_sample_id|sex|Y_status|X_status|XIST|DDX3Y|EIF1AY|KDM5D|NLGN4Y|RPS4Y1|TMSB4Y|USP9Y|UTY|ZFY", 
+                             colnames(combined_data), value = TRUE)
+                                
+tcga_expression_data <- combined_data[, columns_to_keep]
+
+
+```
+
+
+
+```{r}
+# Subset data for males and females
+male_data <- combined_data %>% filter(gender == "MALE")
+male_data <- male_data %>% filter(!is.na(Y_status))  # Remove rows where X_ploidy is NA
+  
+female_data <- combined_data %>% filter(gender == "FEMALE")
+female_data <- female_data %>% filter(!is.na(X_status))  # Remove rows where X_ploidy is NA
+  
+```
+
+```{r}
+# Stacked bar plot for Y_expression by Y_ploidy for males
+male_y_expression_plot <- ggplot(male_data, aes(x = Y_status, fill = Y_inferred_complement)) +
+  geom_bar(position = "stack") +  # Use "stack" for counts
+  scale_fill_manual(values = c( . = "mediumpurple1", 
+                               "intermediate Y" = "grey", 
+                               "Y" = "lightgreen")) +  # Custom colors
+  labs(title = "Counts of Y Expression by Y Ploidy in Males",  # Update title to reflect counts
+       x = "Y Ploidy", 
+       y = "Count") +  # Change y-axis label to "Count"
+  theme_minimal() +
+  theme(legend.position = "right") +
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+
+# Save the plot to the output directory
+ggsave(filename = file.path(output_directory, "TCGA_male_count_stacked_bar_Y_expression.png"), 
+       plot = male_y_expression_plot)
+
+# Optional: Print plot to display in RMarkdown output
+print(male_y_expression_plot)
+
+```
+
+```{r}
+# Define the list of Y-linked genes expression categories
+y_genes <- c("RPS4Y1_expression_category", "ZFY_expression_category", 
+             "USP9Y_expression_category", "DDX3Y_expression_category", 
+             "UTY_expression_category", "KDM5D_expression_category", 
+             "EIF1AY_expression_category")
+
+# Function to create stacked bar plot for Y-linked genes in males
+create_y_plot <- function(gene_col) {
+  ggplot(male_data, aes_string(x = "Y_status", fill = gene_col)) +
+    geom_bar(position = "stack") +  # Change to stack for counts
+    scale_fill_manual(values = c("not expressed" = "mediumpurple1", 
+                                 "intermediate" = "grey", 
+                                 "expressed" = "lightgreen")) + 
+    labs(title = paste("Counts of", gene_col, "Expression by Y Ploidy in Males"),  # Update title for counts
+         x = "Y Ploidy", 
+         y = "Count") +  # Change y-axis label to "Count"
+    theme_minimal() +
+    theme(legend.position = "right") +
+    geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 3)  # Add counts on top of bars
+}
+
+# Generate and save plots for Y-linked gene expression categories in males
+for (gene in y_genes) {
+  plot <- create_y_plot(gene)
+  ggsave(filename = file.path(output_directory, paste0("TCGA_male_count_stacked_bar_", gene, ".png")), plot = plot)
+  print(plot)  # Optional for viewing the plots in RMarkdown output
+}
+
+
+```
+
+
+```{r}
+# Stacked bar plot for X_expression by X_ploidy for females
+female_x_expression_plot <- ggplot(female_data, aes(x = X_status, fill = X_inferred_complement)) +
+  geom_bar(position = "stack") +  # Use "stack" for counts
+  scale_fill_manual(values = c( O = "mediumpurple1", 
+                               "intermediate X" = "grey", 
+                               "X" = "lightgreen")) +  # Custom colors
+  labs(title = "Counts of X Expression by X Ploidy in Females",  # Update title to reflect counts
+       x = "X Ploidy", 
+       y = "Count") +  # Change y-axis label to "Count"
+  theme_minimal() +
+  theme(legend.position = "right") +
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+
+# Save the plot to the output directory
+ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_expression.png"), 
+       plot = male_y_expression_plot)
+
+# Optional: Print plot to display in RMarkdown output
+print(female_x_expression_plot)
+
+```
+
+```{r}
+# Stacked bar plot for X_expression by X_ploidy for females
+female_x_expression_plot <- ggplot(female_data, aes(x = X_status, fill = XIST_expression_category)) +
+  geom_bar(position = "stack") +  # Use "stack" for counts
+  scale_fill_manual(values = c( "not expressed" = "mediumpurple1", 
+                               "intermediate" = "grey", 
+                               "expressed" = "lightgreen")) +  # Custom colors
+  labs(title = "Counts of X Expression by X Ploidy in Females",  # Update title to reflect counts
+       x = "X Ploidy", 
+       y = "Count") +  # Change y-axis label to "Count"
+  theme_minimal() +
+  theme(legend.position = "right") +
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
+
+# Save the plot to the output directory
+ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_expression.png"), 
+       plot = male_y_expression_plot)
+
+# Optional: Print plot to display in RMarkdown output
+print(female_x_expression_plot)
+
+```
