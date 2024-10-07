@@ -1,0 +1,902 @@
+---
+title: "GTEx Figures"
+author: "Mariah Lee"
+date: " Last Updated 10.07.2024"
+output: 
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 60
+---
+
+```{r setup, include=FALSE}
+# Set the root directory for knitting the document
+knitr::opts_knit$set(root.dir = "D:/CCLE_Project/GTEx_output/")
+# Set chunk options to improve readability of code output
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+
+## Install and Load Needed Packages
+
+```{r LoadPackages, message=FALSE, warning=FALSE}
+# Function to install and load CRAN packages
+load_or_install <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+# Function to install and load Bioconductor packages
+load_or_install_bioconductor <- function(pkg) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+  }
+  BiocManager::install(pkg, update = FALSE)
+  library(pkg, character.only = TRUE)
+}
+
+# List of required CRAN packages
+cran_packages <- c("dplyr", "tidyr", "ggplot2", "tibble")
+
+# List of required Bioconductor packages
+bioc_packages <- c("biomaRt", "ComplexHeatmap")
+
+# Install and load CRAN packages
+sapply(cran_packages, load_or_install)
+
+# Install and load Bioconductor packages
+sapply(bioc_packages, load_or_install_bioconductor)
+```
+
+## Read Data
+
+```{r ReadData, message=FALSE}
+# Directory where the data is stored; include / at the end
+data_directory <- "D:/CCLE_Project/data/"
+
+# Check if data files exist before loading
+if (file.exists(paste0(data_directory,"GeneTPM_Subset.csv"))) {
+  GTEx_data <- read.delim(paste0(data_directory, "GeneTPM_Subset.csv"), 
+                          header = TRUE, sep = "\t")
+
+} else {
+  stop("GTEx RNAseq gene expression file not found.")
+}
+
+
+if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDD.csv"))) {
+  attributes_dd <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDD.csv"), 
+                              header = TRUE)
+} else {
+  stop("GTEx Sample Attributes DD annotation file not found.")
+}
+
+
+if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDS.csv"))) {
+  attributes_ds <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDS.csv"), 
+                              header = TRUE)
+} else {
+  stop("GTEx Sample Attributes DS annotation file not found.")
+}
+
+
+if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDD.csv"))) {
+  phenotypes_dd <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDD.csv"), 
+                              header = TRUE)
+} else {
+  stop("GTEx Subject Phenotypes DD annotation file not found.")
+}
+
+
+if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.csv"))) {
+  phenotypes_ds <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.csv"), 
+                              header = TRUE)
+} else {
+  stop("GTEx Subject Phenotypes DS annotation file not found.")
+}
+
+# Gene locations on respective chromosomes
+if (file.exists(paste0(data_directory,"gene_locations.csv"))) {
+  gene_locations <- read.csv(paste0(data_directory,"gene_locations.csv"), 
+                              header = TRUE)
+} else {
+  stop("Gene location file not found.")
+}
+```
+
+## Format the Data
+
+```{r FormatData}
+# Remove the 'Name' column since you don't need it
+GTEx_data_Name <- GTEx_data %>% dplyr::select(-Name)
+
+# Transpose the data: first set row names to GTEx samples, then transpose
+GTEx_data_transposed <- GTEx_data_Name %>%
+  column_to_rownames(var = "Description") %>%
+  t() %>%
+  as.data.frame()
+
+# View the transposed data
+head(GTEx_data_transposed)
+```
+
+## Complete the Dataset
+
+```{r AddSUBJID}
+# Create a column for SubjectID
+
+# Extract the first two parts of the GTEx row names (up to the second period-separated field)
+subject_ids <- sub("^([^.]+\\.[^.]+).*", "\\1", rownames(GTEx_data_transposed))
+
+# Create a new column in GTEx_data_transposed for Subject ID
+GTEx_data_transposed$SUBJID <- subject_ids
+
+# Replace periods with dashes in the SUBJID column
+GTEx_data_transposed$SUBJID <- gsub("\\.", "-", GTEx_data_transposed$SUBJID)
+
+# Move SUBJID to the first column
+GTEx_data_transposed <- GTEx_data_transposed %>% dplyr::select(SUBJID, everything())
+
+# View the data to check if the Subject ID column has been created correctly
+head(GTEx_data_transposed)
+```
+
+```{R AddSex}
+# Merge the sex column from the annotations
+
+# Store the original row names as a new column
+GTEx_data_transposed$Original_RowNames <- rownames(GTEx_data_transposed)
+
+# Merge the datasets by the "SUBJID" column
+GTEx_merged <- merge(GTEx_data_transposed, phenotypes_sex, by = "SUBJID", all.x = TRUE)
+
+# Reorder the columns to make SEX the second column
+GTEx_merged <- GTEx_merged %>% dplyr::select(SUBJID, SEX, everything())
+
+# Recode the SEX column: 1 becomes "Male" and 2 becomes "Female"
+GTEx_merged <- GTEx_merged %>%
+  mutate(SEX = ifelse(SEX == 1, "Male", "Female"))
+
+# Reset the original row names from the 'Original_RowNames' column
+rownames(GTEx_merged) <- GTEx_merged$Original_RowNames
+
+# Drop the 'Original_RowNames' column if no longer needed
+GTEx_merged <- GTEx_merged %>% dplyr::select(-Original_RowNames)
+
+# View the updated dataset
+head(GTEx_merged)
+```
+
+```{r AddTissue}
+# Add tissue type
+
+# Create a column in the final merged dataset (GTEx_merged) that matches the sample IDs in attributes_ds
+GTEx_merged$SampleID <- gsub("\\.", "-", rownames(GTEx_merged))
+
+# Select the relevant columns from attributes_ds (SAMPID, SMTS, SMTSD)
+attributes_selected <- attributes_ds %>% dplyr::select(SAMPID, SMTS, SMTSD)
+
+# Merge GTEx_merged with attributes_ds based on the SampleID and SAMPID columns
+GTEx_final_with_tissue <- merge(GTEx_merged, attributes_selected, by.x = "SampleID", by.y = "SAMPID", all.x = TRUE)
+
+# Reorder columns to place SMTS (tissue type) and SMTSD (tissue detail) as needed
+GTEx_final_with_tissue <- GTEx_final_with_tissue %>%
+  dplyr::select(SUBJID, SEX, SMTS, SMTSD, everything())
+
+# Reset the row names to match SampleID if you want to preserve original row identifiers
+rownames(GTEx_final_with_tissue) <- GTEx_final_with_tissue$SampleID
+
+# Drop SampleID column if it's no longer needed
+GTEx_final_with_tissue <- GTEx_final_with_tissue %>% dplyr::select(-SampleID)
+
+# View the final dataset with tissue type added
+head(GTEx_final_with_tissue)
+
+```
+
+## Transform the data
+
+```{r LogTransformation}
+# Apply the log10(1 + TPM) transformation for each gene column
+GTEx_log <- GTEx_final_with_tissue %>%
+  mutate(across(XIST:RPS4Y2, ~ log10(1 + .), .names = "{col}_log"))
+
+# View the updated dataset with log-transformed columns
+head(GTEx_log)
+
+# Define metadata columns to exclude
+metadata_columns <- c("SUBJID", "SEX", "SMTS", "SMTSD")
+
+# Select only the gene columns, excluding the metadata columns
+gene_columns <- setdiff(colnames(GTEx_log), c(metadata_columns, grep("_log$", colnames(GTEx_log), value = TRUE)))
+
+# Get corresponding log-transformed columns
+log_columns <- paste0(gene_columns, "_log")
+
+# Reorder columns to have genes and their log-transformations next to each other
+new_order <- c(metadata_columns, as.vector(rbind(gene_columns, log_columns)))
+
+# Reorder the dataframe
+GTEx_log_reordered <- GTEx_log %>% dplyr::select(all_of(new_order))
+
+# View the reordered dataframe
+head(GTEx_log_reordered)
+```
+
+## Assign expression level
+
+```{r ExpressionLevels}
+# Get the list of gene columns by excluding metadata, log columns, and any non-gene columns
+gene_columns <- setdiff(names(GTEx_log_reordered), c("SUBJID", "SEX", "SMTS", "SMTSD", grep("_log", names(GTEx_log_reordered), value = TRUE)))
+
+# Function to categorize expression level based on TPM values
+categorize_expression <- function(tpm) {
+  if (tpm <= 1) {
+    return("not_expressed")
+  } else if (tpm >= 10) {
+    return("expressed")
+  } else {
+    return("intermediate")
+  }
+}
+
+# Add expression level columns for each gene based on TPM (non-log) values
+for (gene in gene_columns) {
+  gene_expression_column <- paste0(gene, "_Expression_Level")
+  GTEx_log_reordered[[gene_expression_column]] <- sapply(GTEx_log_reordered[[gene]], categorize_expression)
+}
+
+# View the updated dataset to check the new columns
+head(GTEx_log_reordered)
+```
+
+## Filter data
+
+```{r FilterData}
+# List of genes of interest
+genes_of_interest <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Create a list of interleaved gene and log columns
+genes_with_logs <- c(rbind(genes_of_interest, 
+                           paste0(genes_of_interest, "_log"), 
+                           paste0(genes_of_interest, "_Expression_Level")))
+
+# Filter the data to keep only the selected genes and their log columns, along with metadata
+GTEx_filtered <- GTEx_log_reordered %>%
+  dplyr::select(SUBJID, SEX, SMTS, SMTSD, all_of(genes_with_logs))
+
+# View the filtered dataset
+head(GTEx_filtered)
+```
+
+## Create Expression Plot by Tissue
+
+```{r TissueViolins}
+# Filter the dataset for females (for XIST) and males (for DDX3Y)
+female_data <- GTEx_filtered %>% filter(SEX == "Female")
+male_data <- GTEx_filtered %>% filter(SEX == "Male")
+
+# Plot for XIST expression in females by tissue type
+xist_plot <- ggplot(female_data, aes(x = SMTSD, y = XIST_log, fill = SEX)) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_jitter(size = 0.25, width = 0.2) +
+  labs(title = "XIST Expression (Log TPM) in Females by Tissue",
+       x = "Tissue Type",
+       y = "XIST Expression (Log TPM)") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+        plot.margin = margin(t = 10, r = 10, b = 20, l = 50)) +
+  scale_fill_manual(name = "Sex", values = c("Female" = "royalblue")) +
+  scale_x_discrete(labels = function(x) abbreviate(x, minlength = 15))
+
+# Plot for DDX3Y expression in males by tissue type
+ddx3y_plot <- ggplot(male_data, aes(x = SMTSD, y = DDX3Y_log, fill = SEX)) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_jitter(size = 0.25, width = 0.2) +
+  labs(title = "DDX3Y Expression (Log TPM) in Males by Tissue",
+       x = "Tissue Type",
+       y = "DDX3Y Expression (Log TPM)") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+        plot.margin = margin(t = 10, r = 10, b = 20, l = 50)) +
+  scale_fill_manual(name = "Sex", values = c("Male" = "lightblue")) +
+  scale_x_discrete(labels = function(x) abbreviate(x, minlength = 15))
+
+# Save the plots
+ggsave("GTEx_XIST_violin_plot_females_by_tissue.png", plot = xist_plot, width = 14, height = 6)
+ggsave("GTEx_XIST_violin_plot_females_by_tissue.pdf", plot = xist_plot, width = 14, height = 6)
+
+ggsave("GTEx_DDX3Y_violin_plot_males_by_tissue.png", plot = ddx3y_plot, width = 14, height = 6)
+ggsave("GTEx_DDX3Y_violin_plot_males_by_tissue.pdf", plot = ddx3y_plot, width = 14, height = 6)
+
+# Print the plots in R Markdown
+xist_plot
+ddx3y_plot
+```
+
+## Heat Maps
+
+```{r OrderbyExpression}
+# Create a list of corresponding expression level columns
+expression_columns <- paste0(genes_of_interest, "_Expression_Level")
+
+# Define the ordering of expression levels
+expression_order <- c("expressed", "intermediate", "not_expressed")
+
+# Sort the dataset by expression levels for the genes of interest in priority order
+GTEx_sorted <- GTEx_log_reordered %>%
+  arrange(across(all_of(expression_columns), 
+                 ~ factor(., levels = expression_order)))
+
+# View the sorted dataset
+head(GTEx_sorted)
+```
+
+```{r HandlingNAs}
+# Calculate the count of NA or blank values for each original TPM gene column (without "_log")
+na_or_blank_counts_tpm <- colSums(is.na(GTEx_sorted %>% dplyr::select(-contains("_log"))) |
+                                  GTEx_sorted %>% dplyr::select(-contains("_log")) == "")
+
+# View the counts of NA or blank values in the original TPM columns
+print(na_or_blank_counts_tpm)
+```
+
+### Complete Heat Map
+
+```{r CompleteHeatMap}
+# Filter only log-transformed columns
+heat_matrix_gtex <- as.matrix(GTEx_sorted %>%
+  dplyr::select(contains("_log")))
+
+# Transpose the matrix to have genes as rows and samples as columns
+heat_matrix_gtex <- t(heat_matrix_gtex)
+
+# Remove "_log" suffix from row names for display
+row.names(heat_matrix_gtex) <- gsub("_log", "", row.names(heat_matrix_gtex))
+colnames(heat_matrix_gtex) <- NULL
+
+# Extract sex column to split by sex (Male/Female)
+reported_sex_gtex <- GTEx_sorted$SEX
+
+# Scaling by row: Min-Max Scaling
+heat_matrix_scaled_gtex <- t(apply(heat_matrix_gtex, 1, function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}))
+
+# Match the genes in heat_matrix_gtex to their locations in gene_locations
+gene_location_match <- gene_locations$location[match(row.names(heat_matrix_gtex), gene_locations$gene_name)]
+
+# Create the heatmap
+gene_heatmap_gtex <- suppressMessages(Heatmap(heat_matrix_scaled_gtex,
+                         name = "Scaled Expression",
+                         col = c("royalblue3", "white", "red"),
+                         row_names_side = "left",
+                         cluster_rows = FALSE,
+                         column_split = reported_sex_gtex,
+                         row_split = gene_location_match,  # Split rows by gene locations
+                         column_title_side = "bottom",
+                         cluster_columns = FALSE,
+                         show_column_dend = FALSE,
+                         column_gap = unit(3, "mm")
+                         ))
+
+# Save heatmap as PNG and PDF
+pdf("GTEx_complete_heatmap_scaled.pdf", width = 10, height = 10)
+print(gene_heatmap_gtex)
+dev.off()
+
+png("GTEx_complete_heatmap_scaled.png", width = 1000, height = 1000)
+print(gene_heatmap_gtex)
+dev.off()
+
+# Display heatmap in the console
+gene_heatmap_gtex
+```
+
+### Refined Heat Map
+
+```{r RefinedGeneLocations}
+# Filter gene_locations for genes of interest
+filtered_gene_locations <- gene_locations %>%
+  filter(gene_name %in% genes_of_interest)
+
+# Create a vector for gene locations corresponding to the genes of interest
+gene_location_match_refined <- filtered_gene_locations$location[match(genes_of_interest, filtered_gene_locations$gene_name)]
+
+filtered_gene_locations
+```
+
+```{r ChosenGenesHeatMap}
+# Filter the original GTEx_sorted for genes of interest
+refined_heat_data <- GTEx_sorted %>%
+  dplyr::select(SUBJID, SEX, contains(genes_of_interest))
+
+# Filter only log-transformed columns
+refined_heat_matrix <- as.matrix(refined_heat_data %>%
+  dplyr::select(contains("_log")))
+
+# Transpose the matrix to have genes as rows and samples as columns
+refined_heat_matrix <- t(refined_heat_matrix)
+
+# Remove "_log" suffix from row names for display
+row.names(refined_heat_matrix) <- gsub("_log", "", row.names(refined_heat_matrix))
+colnames(refined_heat_matrix) <- NULL
+
+# Extract sex column to split by sex (Male/Female)
+reported_sex_refined <- refined_heat_data$SEX
+
+# Scaling by row: Min-Max Scaling
+refined_heat_matrix_scaled <- t(apply(refined_heat_matrix, 1, function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}))
+
+# Create the refined heatmap
+gene_heatmap_refined <- suppressMessages(Heatmap(refined_heat_matrix_scaled,
+                         name = "Scaled Expression",
+                         col = c("royalblue3", "white", "red"),
+                         row_names_side = "left",
+                         cluster_rows = FALSE,
+                         row_split = gene_location_match_refined,
+                         column_split = reported_sex_refined,
+                         column_title_side = "bottom",
+                         cluster_columns = FALSE,
+                         show_column_dend = FALSE,
+                         column_gap = unit(3, "mm")
+                         ))
+
+# Save refined heatmap as PNG and PDF
+pdf("GTEx_refined_heatmap_scaled.pdf", width = 10, height = 10)
+print(gene_heatmap_refined)
+dev.off()
+
+png("GTEx_refined_heatmap_scaled.png", width = 1000, height = 1000)
+print(gene_heatmap_refined)
+dev.off()
+
+# Display refined heatmap
+gene_heatmap_refined
+```
+
+## Summary Table
+
+```{r TotalY}
+# Define the chrY genes from genes_of_interest, excluding XIST
+chrY_gene_Expression <- c("RPS4Y1_Expression_Level", 
+                          "ZFY_Expression_Level", 
+                          "USP9Y_Expression_Level", 
+                          "DDX3Y_Expression_Level", 
+                          "UTY_Expression_Level", 
+                          "KDM5D_Expression_Level", 
+                          "EIF1AY_Expression_Level")
+
+# Save sample ids
+GTEx_filtered$SAMPLEID <- rownames(GTEx_filtered)
+
+# Add total_Y_expression column
+GTEx_filtered <- GTEx_filtered %>%
+  rowwise() %>%
+  mutate(total_Y_expression = case_when(
+    any(c_across(all_of(chrY_gene_Expression)) == "expressed") ~ "expressed",
+    all(c_across(all_of(chrY_gene_Expression)) == "not_expressed") ~ "not_expressed",
+    TRUE ~ "intermediate"  # Cases that are have at least one intermediate, no expressed
+  ))
+
+# View the updated data
+head(GTEx_filtered)
+```
+
+```{r GenerateTableFx, echo=TRUE}
+# Function to generate the table for a given subset of data using total_Y_expression
+generate_table <- function(data, label) {
+  total_count <- nrow(data)
+  
+  # Inclusive counts (treating intermediate as expressed)
+  inclusive_highXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level %in% c("expressed", "intermediate") &
+           total_Y_expression == "not_expressed") %>%
+    nrow()
+
+  inclusive_lowXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level == "not_expressed" &
+           total_Y_expression == "not_expressed") %>%
+    nrow()
+
+  inclusive_highXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level %in% c("expressed", "intermediate") &
+           total_Y_expression %in% c("expressed", "intermediate")) %>%
+    nrow()
+
+  inclusive_lowXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level == "not_expressed" &
+           total_Y_expression %in% c("expressed", "intermediate")) %>%
+    nrow()
+
+  # Conservative counts (treating intermediate as not expressed)
+  conservative_highXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level == "expressed" &
+           total_Y_expression %in% c("not_expressed", "intermediate")) %>%
+    nrow()
+
+  conservative_lowXIST_lowY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level %in% c("not_expressed", "intermediate") &
+           total_Y_expression %in% c("not_expressed", "intermediate")) %>%
+    nrow()
+
+  conservative_highXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level == "expressed" &
+           total_Y_expression == "expressed") %>%
+    nrow()
+
+  conservative_lowXIST_highY <- data %>%
+    rowwise() %>%
+    filter(XIST_Expression_Level %in% c("not_expressed", "intermediate") &
+           total_Y_expression == "expressed") %>%
+    nrow()
+
+  # Calculate inclusive and conservative counts and percentages
+  inclusive_counts <- c(inclusive_highXIST_lowY, inclusive_lowXIST_lowY, inclusive_highXIST_highY, inclusive_lowXIST_highY)
+  conservative_counts <- c(conservative_highXIST_lowY, conservative_lowXIST_lowY, conservative_highXIST_highY, conservative_lowXIST_highY)
+  
+  inclusive_percentages <- (inclusive_counts / total_count) * 100
+  conservative_percentages <- (conservative_counts / total_count) * 100
+  
+  # Define the complement categories for both inclusive and conservative
+  complement_categories <- c("XX", "XO", "XXY", "XY")
+  
+  # Create a data frame for both inclusive and conservative values
+  table <- data.frame(
+    Sex = label,
+    Expression = c("XIST expressed and chrY not expressed",
+                   "XIST not expressed and chrY not expressed",
+                   "XIST expressed and chrY expressed",
+                   "XIST not expressed and chrY expressed"),
+    Inclusive_Count = inclusive_counts,
+    Inclusive_Percent = round(inclusive_percentages, 2),
+    Inclusive_Complement = complement_categories,
+    Conservative_Count = conservative_counts,
+    Conservative_Percent = round(conservative_percentages, 2),
+    Conservative_Complement = complement_categories
+  )
+  
+  # Add total row
+  total_row <- data.frame(
+    Sex = label,
+    Expression = "Total",
+    Inclusive_Count = sum(inclusive_counts),
+    Inclusive_Percent = round(sum(inclusive_percentages), 2),
+    Inclusive_Complement = NA,
+    Conservative_Count = sum(conservative_counts),
+    Conservative_Percent = round(sum(conservative_percentages), 2),
+    Conservative_Complement = NA
+  )
+  
+  # Combine the original table with the total row
+  table <- rbind(table, total_row)
+  
+  # Print the head of the table
+  print(head(table))
+  
+  return(table)
+}
+```
+
+```{r ApplyFx}
+# Filter data to include only female, male, and unknown cell lines
+female_data <- GTEx_filtered %>% filter(SEX == "Female")
+male_data <- GTEx_filtered %>% filter(SEX == "Male")
+
+# Generate tables for each subset
+female_result <- generate_table(female_data, "Female") #5798 total
+male_result <- generate_table(male_data, "Male") #11584 total
+```
+
+## Contingency Table - SCC per Sample
+
+```{r SampleTable}
+# Function to determine if all chrY genes have the same expression
+determine_chrY_expression_status <- function(...) {
+  expressions <- list(...)
+  if (length(unique(expressions)) == 1) {
+    return("same")
+  } else {
+    return("mixed")
+  }
+}
+
+# Function to determine the sex chromosome complement with intermediates treated as expressed (scc_inter_expr)
+determine_scc_inter_expr <- function(xist_expression, y_expression) {
+  if (xist_expression == "expressed") {
+    if (y_expression %in% c("expressed", "intermediate")) {
+      return("XXY")
+    } else if (y_expression == "not_expressed") {
+      return("XX")
+    }
+  } else if (xist_expression == "intermediate") {
+    if (y_expression %in% c("expressed", "intermediate")) {
+      return("XXY")
+    } else if (y_expression == "not_expressed") {
+      return("XX")
+    }
+  } else if (xist_expression == "not_expressed") {
+    if (y_expression %in% c("expressed", "intermediate")) {
+      return("XY")
+    } else if (y_expression == "not_expressed") {
+      return("X0")
+    }
+  }
+  
+  # If none of the above conditions are met, return NA
+  return(NA)
+}
+
+# Function to determine the sex chromosome complement with intermediates treated as not expressed (scc_inter_not_expr)
+determine_scc_inter_not_expr <- function(xist_expression, y_expression) {
+  if (xist_expression == "expressed" && y_expression == "expressed") {
+    return("XXY")
+  } else if (xist_expression %in% c("intermediate", "not_expressed") && 
+             y_expression == "expressed") {
+    return("XY")
+  } else if (xist_expression == "expressed" && y_expression %in% c("intermediate", 
+                                                                   "not_expressed")) {
+    return("XX")
+  } else if (xist_expression %in% c("intermediate", "not_expressed") && 
+             y_expression %in% c("intermediate", "not_expressed")) {
+    return("XO")
+  }
+  
+  # If none of the above conditions are met, return NA
+  return(NA)
+}
+
+
+
+# Apply the functions to determine sex chromosome complements and predicted sex
+complement_data <- GTEx_filtered %>%
+  mutate(Y_expression_status = determine_chrY_expression_status(!!!syms(chrY_gene_Expression)),
+         scc_inclusive = determine_scc_inter_expr(XIST_Expression_Level, total_Y_expression),
+         scc_conservative  = determine_scc_inter_not_expr(XIST_Expression_Level, total_Y_expression),
+         Y_Expression_Level = total_Y_expression) %>%
+  dplyr::select(SAMPLEID, SUBJID, SEX, scc_inclusive, scc_conservative,
+                XIST_Expression_Level, Y_Expression_Level, 
+                Y_expression_status, all_of(chrY_gene_Expression))
+
+# Save the complement_data to a CSV file
+write.csv(complement_data, file = "GTEx_individual_scc.csv", row.names = FALSE)
+
+head(complement_data)
+```
+
+## Pie Charts
+
+### Female Pie Charts
+
+```{r Female Preprocessing}
+# Split into inclusive and conservative data frames, excluding the "Total" row
+female_inclusive <- female_result %>%
+  filter(Expression != "Total") %>%
+  dplyr::select(Sex, Expression, Inclusive_Count, Inclusive_Percent, Inclusive_Complement) %>%
+  rename(Count = Inclusive_Count, Percent = Inclusive_Percent, Complement = Inclusive_Complement)
+
+female_conservative <- female_result %>%
+  filter(Expression != "Total") %>%
+  dplyr::select(Sex, Expression, Conservative_Count, Conservative_Percent, Conservative_Complement) %>%
+  rename(Count = Conservative_Count, Percent = Conservative_Percent, Complement = Conservative_Complement)
+
+# Reorder the Expression factor in female_inclusive_data and female_conservative_data
+female_inclusive$Expression <- factor(female_inclusive$Expression, 
+                                           levels = c("XIST expressed and chrY not expressed", 
+                                                      "XIST not expressed and chrY not expressed", 
+                                                      "XIST expressed and chrY expressed", 
+                                                      "XIST not expressed and chrY expressed"))
+
+female_conservative$Expression <- factor(female_conservative$Expression, 
+                                              levels = c("XIST expressed and chrY not expressed", 
+                                                         "XIST not expressed and chrY not expressed", 
+                                                         "XIST expressed and chrY expressed", 
+                                                         "XIST not expressed and chrY expressed"))
+
+# View resulting tables
+head(female_inclusive)
+head(female_conservative)
+```
+
+```{r FemalePieChart}
+# Define colors for the pie charts
+pie_colors_female <- c("palegreen3", "mediumpurple", "gray", "gray")
+
+# Inclusive pie chart for females with labels inside the pie slices
+female_inclusive_chart <- ggplot(female_inclusive, 
+                                 aes(x = "", y = Percent, fill = Expression)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Gene Expression in Reported Females - Inclusive") +
+  scale_fill_manual(values = pie_colors_female) +
+  
+  # Repel the gray labels to avoid overlap
+  geom_label_repel(data = subset(female_inclusive, Expression %in% 
+                                   c("XIST expressed and chrY expressed", "XIST not expressed and chrY expressed")),
+                   aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression),
+                   size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
+                   segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
+  
+  # Add centered labels for non-gray sections
+  geom_label(data = subset(female_inclusive, !Expression %in% 
+                             c("XIST expressed and chrY expressed", "XIST not expressed and chrY expressed")),
+             aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression), 
+             position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
+             label.size = 0.35, label.padding = unit(0.2, "lines"), 
+             fontface = "bold", color = "black") +  # Black text with label background matching the pie slice
+  
+  theme(plot.title = element_text(hjust = 0.8, size = 12),  # Adjust title alignment and size
+        plot.title.position = "plot",  # Ensure the title is positioned correctly
+        plot.margin = margin(10, 10, 10, 40))  # Adjust margins to prevent the title from being cut off
+
+print(female_inclusive_chart)
+
+# Conservative pie chart for females with repelled gray labels and centered others
+female_conservative_chart <- ggplot(female_conservative, 
+                                    aes(x = "", y = Percent, fill = Expression)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Gene Expression in Reported Females - Conservative") +
+  scale_fill_manual(values = pie_colors_female) +
+  
+  # Repel the gray labels to avoid overlap
+  geom_label_repel(data = subset(female_conservative, Expression %in% c("XIST expressed and chrY expressed", "XIST not expressed and chrY expressed")),
+                   aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression),
+                   size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
+                   segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
+  
+  # Add centered labels for non-gray sections
+  geom_label(data = subset(female_conservative, !Expression %in% c("XIST expressed and chrY expressed", "XIST not expressed and chrY expressed")),
+             aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression), 
+             position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
+             label.size = 0.35, label.padding = unit(0.2, "lines"), 
+             fontface = "bold", color = "black") +  # Black text with label background matching the pie slice
+  
+  theme(plot.title = element_text(hjust = 0.8, size = 12),  # Adjust title alignment and size
+        plot.title.position = "plot",  # Ensure the title is positioned correctly
+        plot.margin = margin(10, 10, 10, 40))  # Adjust margins to prevent the title from being cut off
+
+print(female_conservative_chart)
+
+# Save the charts
+ggsave(filename = file.path("GTEx_female_inclusive_pie_chart.png"), 
+       plot = female_inclusive_chart, width = 7, height = 5, dpi = 300)
+ggsave(filename = file.path("GTEx_female_conservative_pie_chart.png"), 
+       plot = female_conservative_chart, width = 7, height = 5, dpi = 300)
+
+# Save the charts as PDFs
+ggsave(filename = file.path("GTEx_female_inclusive_pie_chart.pdf"), 
+       plot = female_inclusive_chart, width = 7, height = 5, dpi = 300)
+ggsave(filename = file.path("GTEx_female_conservative_pie_chart.pdf"), 
+       plot = female_conservative_chart, width = 7, height = 5, dpi = 300)
+
+```
+
+### Male Pie Charts
+
+```{r Male Preprocessing}
+# Split into inclusive and conservative data frames, excluding the "Total" row
+male_inclusive <- male_result %>%
+  filter(Expression != "Total") %>%
+  dplyr::select(Sex, Expression, Inclusive_Count, Inclusive_Percent, Inclusive_Complement) %>%
+  rename(Count = Inclusive_Count, Percent = Inclusive_Percent, Complement = Inclusive_Complement)
+
+male_conservative <- male_result %>%
+  filter(Expression != "Total") %>%
+  dplyr::select(Sex, Expression, Conservative_Count, Conservative_Percent, Conservative_Complement) %>%
+  rename(Count = Conservative_Count, Percent = Conservative_Percent, Complement = Conservative_Complement)
+
+# Reorder the Expression factor in male_inclusive_data and male_conservative_data according to the new order
+male_inclusive$Expression <- factor(male_inclusive$Expression, 
+                                         levels = c("XIST not expressed and chrY expressed", 
+                                                    "XIST not expressed and chrY not expressed", 
+                                                    "XIST expressed and chrY expressed", 
+                                                    "XIST expressed and chrY not expressed"))
+
+male_conservative$Expression <- factor(male_conservative$Expression, 
+                                            levels = c("XIST not expressed and chrY expressed", 
+                                                       "XIST not expressed and chrY not expressed", 
+                                                       "XIST expressed and chrY expressed", 
+                                                       "XIST expressed and chrY not expressed"))
+
+# View resulting tables
+head(male_inclusive)
+head(male_conservative)
+```
+
+```{r MalePieChart}
+# Define colors for the pie charts (keeping gray for the chrY expressed cases)
+pie_colors_male <- c("palegreen2", "mediumpurple1", "gray", "gray")
+
+# Inclusive pie chart for males with labels inside the pie slices
+male_inclusive_chart <- ggplot(male_inclusive, 
+                               aes(x = "", y = Percent, fill = Expression)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Gene Expression in Reported Males - Inclusive") +
+  scale_fill_manual(values = pie_colors_male) +
+  
+  # Repel only gray sections
+  geom_label_repel(data = subset(male_inclusive, Expression %in% c("XIST expressed and chrY expressed", "XIST expressed and chrY not expressed")),
+                   aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression),
+                   size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
+                   segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
+  
+  # Add centered labels for non-gray sections
+  geom_label(data = subset(male_inclusive, !Expression %in% c("XIST expressed and chrY expressed", "XIST expressed and chrY not expressed")),
+             aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression), 
+             position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
+             label.size = 0.35, label.padding = unit(0.2, "lines"), 
+             fontface = "bold", color = "black") +  # Black text with label background matching the pie slice
+  
+  theme(plot.title = element_text(hjust = 0.8, size = 12),  # Adjust title alignment and size
+        plot.title.position = "plot",  # Ensure the title is positioned correctly
+        plot.margin = margin(10, 10, 10, 40))  # Adjust margins to prevent the title from being cut off
+
+print(male_inclusive_chart)
+
+# Conservative pie chart for males with repelled gray labels and centered others
+male_conservative_chart <- ggplot(male_conservative, 
+                                  aes(x = "", y = Percent, fill = Expression)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Gene Expression in Reported Males - Conservative") +
+  scale_fill_manual(values = pie_colors_male) +
+  
+  # Repel the gray labels to avoid overlap, but do not repel green (XaY)
+  geom_label_repel(data = subset(male_conservative, Expression %in% 
+                                   c("XIST expressed and chrY expressed", "XIST expressed and chrY not expressed")),
+                   aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression),
+                   size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
+                   segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
+  
+  # Add centered labels for non-gray sections
+  geom_label(data = subset(male_conservative, !Expression %in% 
+                             c("XIST expressed and chrY expressed", "XIST expressed and chrY not expressed")),
+             aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression), 
+             position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
+             label.size = 0.35, label.padding = unit(0.2, "lines"), 
+             fontface = "bold", color = "black") +  # Black text with label background matching the pie slice
+  
+  theme(plot.title = element_text(hjust = 0.8, size = 12),  # Adjust title alignment and size
+        plot.title.position = "plot",  # Ensure the title is positioned correctly
+        plot.margin = margin(10, 10, 10, 40))  # Adjust margins to prevent the title from being cut off
+
+print(male_conservative_chart)
+
+# Save the charts
+ggsave(filename = file.path("GTEx_male_inclusive_pie_chart.png"), 
+       plot = male_inclusive_chart, width = 7, height = 5, dpi = 300)
+ggsave(filename = file.path("GTEx_male_conservative_pie_chart.png"), 
+       plot = male_conservative_chart, width = 7, height = 5, dpi = 300)
+
+# Save the charts as PDFs
+ggsave(filename = file.path("GTEx_male_inclusive_pie_chart.pdf"), 
+       plot = male_inclusive_chart, width = 7, height = 5, dpi = 300)
+ggsave(filename = file.path("GTEx_male_conservative_pie_chart.pdf"), 
+       plot = male_conservative_chart, width = 7, height = 5, dpi = 300)
+```
+
+## Session Information
+
+The following R version and packages were used to generate these tables and figures.
+
+```{r SessionInfo}
+sessionInfo()
+```
