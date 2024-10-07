@@ -1,36 +1,49 @@
-# Infer Presence or Absence of Y (RNA)
+# CCLE Sex Chromosome Gene Expression Analysis
 
-## Establishing Thresholds for Analysis
+This folder contains the code and data used to infer the presence or absence of X and Y chromosomes in Cancer Cell Line Encyclopedia (CCLE) cell lines. This analysis leverages RNA-seq expression data for sex chromosome genes such as **XIST**, **RPS4Y1**, **ZFY**, **DDX3Y**, and others. It also includes visualization and reporting through heat maps, violin plots, and pie charts.
 
-This code allows for the visualization of expression data in the CCLE. Only cell lines with a reported sex are included in the analyzed data. Violin plots with and without thresholds and pie charts for males and females are created. Each cell line is then annotated with "high_expression," "intermediate_expression," or "low_expression" according to the assigned thresholds. This will be output as a CSV with expression (RNA-seq) counts, log counts, and the expression level. The total output is one violin plot (with thresholds) image, two pie chart images (one for female, one for male), and one CSV file.
+## Project Overview
 
-**This code is made to run one gene at a time.** To run different Y chromosome genes, change "chosen_gene" under Gene of Interest. This may be used for X chromosome genes as well. Change the chosen_gene and use male mean and standard deviation when calculating thresholds.
+The goal of this project is to explore and visualize the expression of sex chromosome genes, specifically focusing on how the expression relates to reported sex in the CCLE cell lines. The analysis aims to provide insights into the expression patterns of genes on the X and Y chromosomes and infer the presence of these chromosomes based on gene expression data.
 
-*Change* root.dir *and* data_directory *accordingly.*
+## Data Preparation
 
+Gene expression data is obtained from CCLE, with TPM values log-transformed. **Ensembl gene IDs** are converted to **HGNC symbols** using the BiomaRt package.
 
-# CCLE- Figures and Tables
-
-## Combining Gene Counts
-
-This utilizes the combine_gene_counts.R script to compile all of the expression data from various genes.
-
-## Visualizing Expression Counts
-
-Heatmaps, violin plots, and pie charts are used to visualize the count data for each of our genes.
-
-## Expression to the sec chromosome complement
-
-Utilizing the established thresholds, we give complements to each cell line. The expression levels of the Y chromosome genes were combined to create one expression level of Y. The method to decide the expression of Y is determined below:
-  * High expression of Y is decided if at least one gene is classified as "high_expression"
-  * Low expression of Y is decided when all of our chosen Y genes are classified as "low_expression"
-  * Intermediate expression of Y is decided when there is any combination of intermediate and low expression of the chromosome Y genes.
-
-Intermediate values create the following chromosome complement:
-
-  * Intermediate expression of XIST represents some inactivation of the X chromosome. The X chromosome can escape inactivation completely or in part. This is why we've designated cell lines with intermediate XIST expression as having two X chromosomes.
-  * Intermediate expression of Y represents a reduction of expression or partial loss of Y. We have determined this as evidence of a Y chromosome.
+### Input Files:
+1. **Gene Expression Data**: `CCLE_RNAseq_rsem_genes_tpm_20180929.txt`
+2. **Sample Annotation Data**: `Cell_lines_annotations_20181226.txt`
+3. **Gene Location Data**: `gene_locations.csv`
 
 ## Outputs
 
-The outputs are two heatmaps, two combined violin plots, two pie charts (one for females, one for males), one comprehensive table that summarizes the sex chromosome complements, and a CSV that assigns a sex chromosome complement to each cell line in the CCLE.
+1. **Heatmaps**:
+    - `CCLE_complete_heat_map_scaled.pdf`: Shows all genes of interest, split by sex and gene location.
+    - `CCLE_refined_heat_map_scaled.pdf`: Focuses on a subset of selected genes with significant bimodal expression.
+
+2. **Violin Plots**:
+    - **By Reported Sex**: 
+        - Individual gene expression plots (male/female) with thresholds.
+        - Combined facet violin plot: `facet_plot_with_thresholds.pdf`
+    - **By Tissue Type**:
+        - `XIST_violin_plot_females_by_tissue_and_cancer.pdf`: Visualizes XIST expression in female cell lines across different tissues.
+        - `DDX3Y_violin_plot_males_by_tissue_and_cancer.pdf`: Visualizes DDX3Y expression in male cell lines across different tissues.
+        - Variants with tissue separators:
+            - `XIST_violin_plot_females_with_separators.pdf`
+            - `DDX3Y_violin_plot_males_with_separators.pdf`
+
+3. **Pie Charts**:
+    - **Female Cell Lines**:
+        - `CCLE_female_inclusive_pie_chart.pdf`
+        - `CCLE_female_conservative_pie_chart.pdf`
+    - **Male Cell Lines**:
+        - `CCLE_male_inclusive_pie_chart.pdf`
+        - `CCLE_male_conservative_pie_chart.pdf`
+
+4. **CSV Output**:
+    - `CCLE_individual_scc.csv`: Contains the sex chromosome complements and expression data for each cell line.
+
+
+## Conclusion
+
+This analysis provides insights into the expression of sex chromosome genes in the CCLE. The generated heat maps, violin plots, pie charts, and tables can be used to explore how gene expression correlates with reported sex and infer the presence of sex chromosomes.
