@@ -1,0 +1,191 @@
+---
+title: "TCGA-LIHC Tumor vs Adjacent"
+author: "Robert Phavong"
+date: "2024-07-29"
+output: html_document
+---
+
+
+## Set options for printing reports
+```{r Printoptions}
+
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+
+# Load required packages
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(plotly)
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(dplyr)
+library(GGally)
+library(tidyr)
+library(reshape2)
+library(tibble)
+```
+
+
+# Set directories
+```{r}
+working_path <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Tumor_Adjacent/TCGA_LIHC_Tumor_Adjacent/"
+
+setwd(working_path)
+
+filepath <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Tumor_Adjacent/TCGA_LIHC_Tumor_Adjacent/"
+```
+
+
+
+```{r}
+# Get list of projects within the GDC Portal
+gdcprojects <- getGDCprojects()
+
+getProjectSummary("TCGA-LIHC")
+```
+
+
+# Building a query for the extraction of project of interest
+```{r}
+query_transcriptome_LIHC <- GDCquery(project = "TCGA-LIHC",
+    data.category = "Transcriptome Profiling",
+    experimental.strategy = "RNA-Seq",
+    workflow.type = "STAR - Counts",
+    access = "open")
+```
+
+
+# Extract the files that are only 'Transcriptome Profiling'
+```{r}
+output_query_TCGA_LIHC_transcriptome <- getResults(query_transcriptome_LIHC)
+```
+
+
+# Build a query to retrieve gene expression data
+```{r}
+# Separate the 'Primary Tumor'
+query_TCGA_LIHC_transcriptome <- GDCquery(project = "TCGA-LIHC",
+    data.category = "Transcriptome Profiling", experimental.strategy = "RNA-Seq",
+    data.type = "Gene Expression Quantification", workflow.type = "STAR - Counts", access = "open")
+```
+
+
+# Download data of interest from files filtered for gene expression from Project TCGA-LIHC using GDCdownload
+```{r}
+GDCdownload(query_TCGA_LIHC_transcriptome)
+```
+
+
+# Prepare data to extract information from the data selected
+```{r}
+tcga_LIHC_transcriptome <- GDCprepare(query_TCGA_LIHC_transcriptome, summarizedExperiment = FALSE)
+```
+
+
+# Explore Clinical from TCGA to explore contents
+```{r}
+query_clinical_LIHC <- GDCquery(project = "TCGA-LIHC", data.category = "Clinical")
+```
+
+
+# Download the Clinical data for Clinical Supplement only
+```{r}
+query_clinical_LIHC_cs <- GDCquery(project = "TCGA-LIHC",
+    data.category = "Clinical",
+    data.type = "Clinical Supplement",
+    data.format = "BCR XML")
+
+GDCdownload(query_clinical_LIHC_cs)
+
+clinical_LIHC <- GDCprepare_clinic(query_clinical_LIHC_cs, clinical.info = "patient")
+```
+
+
+# Extract the Genes of Interest and their TPM counts
+```{r}
+# Define the gene names of interest
+genes_of_interest <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "TMSB4Y", "EIF1AY", "NLGN4Y", "KDM5D")
+
+# Filter rows to keep only the genes of interest
+filtered_genes <- tcga_LIHC_transcriptome %>% filter(gene_name %in% genes_of_interest)
+
+# Select columns that start with 'tpm_unstranded_' and the 'gene_name' column
+genes_tpm_counts <- filtered_genes %>% select(gene_name, starts_with("tpm_unstranded_"))
+
+# Transform data, so that cases are on the 'rows' and the genes are as columns
+genes_tpm_counts <- t(genes_tpm_counts)
+
+# Set the first row as column names
+colnames(genes_tpm_counts) <- as.character(genes_tpm_counts[1,])
+
+# RemLIHCe the first row
+genes_tpm_counts <- genes_tpm_counts[-1,]
+
+# Convert the data to a data frame
+genes_tpm_counts <- as.data.frame(genes_tpm_counts)
+```
+
+
+# Remove 'tpm_unstranded_' from all the cases
+```{r}
+# Remove 'tpm_unstranded_' from the row names of genes_tpm_counts
+rownames(genes_tpm_counts) <- sub("^tpm_unstranded_", "", rownames(genes_tpm_counts))
+```
+
+
+# Combine 'cases', 'cases.sumbitter_id', and 'sample_type'
+## Note, cases.submitter_id: The unique key that was used for the case that links the demographic entity to the case. (https://docs.gdc.cancer.gLIHC/Data_Submission_Portal/Users_Guide/Data_Submission_Walkthrough/ )
+```{r}
+# From the 'output_query_TCGA_LIHC_transcriptome'extract 'cases' and 'cases.sumbitter_id so that we can combine to the data below to correlate cases between primary, solid tissue normal, and recurrent
+cases_column <- output_query_TCGA_LIHC_transcriptome %>%
+  select(cases, cases.submitter_id, sample_type)
+
+# Print the cases_column
+head(cases_column)
+
+#### Add "cases.submitter_id" to gene_tpm dataframes
+# Convert the row names of genes_tpm_counts to a column
+genes_tpm_counts$cases <- rownames(genes_tpm_counts)
+
+# Perform the merge operation to add 'cases.submitter_id'
+genes_tpm_counts <- merge(genes_tpm_counts, cases_column[, c("cases", "cases.submitter_id", "sample_type")], by = "cases")
+
+# Reorder columns to make 'cases.submitter_id' the second column
+genes_tpm_counts <- genes_tpm_counts %>%
+  dplyr::select(cases, cases.submitter_id, sample_type, XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, TMSB4Y, EIF1AY, NLGN4Y, KDM5D)
+```
+
+
+# Add 'gender' from 'clinical_LIHC' to 'genes_tpm_counts'
+```{r}
+# Make sure the column names and types are appropriate for merging between data sets
+genes_tpm_counts$cases.submitter_id <- as.character(genes_tpm_counts$cases.submitter_id)
+clinical_LIHC$bcr_patient_barcode <- as.character(clinical_LIHC$bcr_patient_barcode)
+
+# Merge the data frames
+genes_tpm_counts <- merge(genes_tpm_counts, 
+                     clinical_LIHC[, c("bcr_patient_barcode", "gender")], 
+                     by.x = "cases.submitter_id", 
+                     by.y = "bcr_patient_barcode", 
+                     all.x = TRUE)
+
+# Reorder columns to make 'cases.submitter_id' the second column
+genes_tpm_counts_LIHC <- genes_tpm_counts %>%
+  dplyr::select(cases, cases.submitter_id, sample_type, gender, XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, TMSB4Y, EIF1AY, NLGN4Y, KDM5D)
+
+# Add a column called 'Cancer Type' to indicate what type of cancer this is
+genes_tpm_counts_LIHC$`Cancer Type` <- "LIHC"
+
+# Reorder columns to place 'Cancer Type' as the third column
+genes_tpm_counts_LIHC <- genes_tpm_counts_LIHC %>%
+  select(1:2, `Cancer Type`, everything())
+```
+
+# Write file into a CSV file
+```{r}
+# Convert the 'genes_tpm_LIHC' data frame to a CSV file
+write.csv(genes_tpm_counts_LIHC, file = "genes_tpm_counts_LIHC.csv", row.names = FALSE)
+```
