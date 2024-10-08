@@ -1,0 +1,1344 @@
+---
+title: "TCGA All Cancers Thresholds Determination"
+author: "Robert Phavong"
+date: "2024-09-11"
+output: html_document
+---
+
+
+## Set options for printing reports
+```{r Printoptions}
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+## Set options to prevent plots from being cut off when printing report
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=6)
+```
+
+
+# Load required libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(viridis)  # for the viridis color palette (colorblind-friendly!)
+library(pheatmap)
+library(tibble)
+```
+
+
+# Set working directory
+```{r}
+# Specify the directory
+working_path_thresholds <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_All_Cancers_Thresholds/"
+
+setwd(working_path_thresholds)
+
+working_path_thresholds <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_All_Cancers_Thresholds/"
+```
+
+
+# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes, tumor suppressors, and oncogenes)
+```{r}
+all_cancers_sex_genes_tpm <- read.csv("genes_tpm_all_names.csv", header = TRUE)
+```
+
+
+## Using log10(1 + x)
+## Using determined thresholds of log(10) > for high and log(1) >= for not expressed
+## XIST Thresholds
+```{r}
+# XIST
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in XIST
+sum(is.na(all_cancers_sex_genes_tpm$XIST)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_XIST <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_XIST = log10(1 + XIST))
+
+# Remove rows with NA in XIST or gender
+genes_tpm_all_log10p1_XIST <- na.omit(genes_tpm_all_log10p1_XIST[, c("log10p1_XIST", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_XIST_log10p1 <- genes_tpm_all_log10p1_XIST %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_XIST_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_XIST, aes(x = gender, y = log10p1_XIST, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA XIST Gene Expression by Gender",
+       x = "Gender",
+       y = "XIST Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_XIST_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_XIST_allcancers.png", plot = violin_XIST_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for XIST
+median_males_XIST_log10p1 <- median(genes_tpm_all_log10p1_XIST$log10p1_XIST[genes_tpm_all_log10p1_XIST$gender == "MALE"])
+
+print(paste("median XIST expression for males:", median_males_XIST_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_XIST <- genes_tpm_all_log10p1_XIST %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_XIST_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_XIST, aes(x = gender, y = log10p1_XIST, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA XIST Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "XIST Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_XIST$log10p1_XIST) * 1.1, 
+           label = paste("n =", sample_counts_XIST$n[sample_counts_XIST$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_XIST$log10p1_XIST) * 1.1, 
+           label = paste("n =", sample_counts_XIST$n[sample_counts_XIST$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_XIST_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_XIST_allcancers_log10p1.png", plot = violin_XIST_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_XIST_allcancers_log10p1.pdf", plot = violin_XIST_allcancers_log10p1)
+```
+
+
+
+## RPS4Y1 Thresholds
+```{r}
+# RPS4Y1
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in RPS4Y1
+sum(is.na(all_cancers_sex_genes_tpm$RPS4Y1)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_RPS4Y1 <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_RPS4Y1 = log10(1 + RPS4Y1))
+
+# Remove rows with NA in RPS4Y1 or gender
+genes_tpm_all_log10p1_RPS4Y1 <- na.omit(genes_tpm_all_log10p1_RPS4Y1[, c("log10p1_RPS4Y1", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_RPS4Y1_log10p1 <- genes_tpm_all_log10p1_RPS4Y1 %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_RPS4Y1_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_RPS4Y1, aes(x = gender, y = log10p1_RPS4Y1, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA RPS4Y1 Gene Expression by Gender",
+       x = "Gender",
+       y = "RPS4Y1 Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_RPS4Y1_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_RPS4Y1_allcancers.png", plot = violin_RPS4Y1_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for RPS4Y1
+median_males_RPS4Y1_log10p1 <- median(genes_tpm_all_log10p1_RPS4Y1$log10p1_RPS4Y1[genes_tpm_all_log10p1_RPS4Y1$gender == "MALE"])
+
+print(paste("median RPS4Y1 expression for males:", median_males_RPS4Y1_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_RPS4Y1 <- genes_tpm_all_log10p1_RPS4Y1 %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_RPS4Y1_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_RPS4Y1, aes(x = gender, y = log10p1_RPS4Y1, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA RPS4Y1 Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "RPS4Y1 Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_RPS4Y1$log10p1_RPS4Y1) * 1.1, 
+           label = paste("n =", sample_counts_RPS4Y1$n[sample_counts_RPS4Y1$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_RPS4Y1$log10p1_RPS4Y1) * 1.1, 
+           label = paste("n =", sample_counts_RPS4Y1$n[sample_counts_RPS4Y1$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_RPS4Y1_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_RPS4Y1_allcancers_log10p1.png", plot = violin_RPS4Y1_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_RPS4Y1_allcancers_log10p1.pdf", plot = violin_RPS4Y1_allcancers_log10p1)
+```
+
+
+
+## ZFY Thresholds
+```{r}
+# ZFY
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in ZFY
+sum(is.na(all_cancers_sex_genes_tpm$ZFY)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_ZFY <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_ZFY = log10(1 + ZFY))
+
+# Remove rows with NA in ZFY or gender
+genes_tpm_all_log10p1_ZFY <- na.omit(genes_tpm_all_log10p1_ZFY[, c("log10p1_ZFY", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_ZFY_log10p1 <- genes_tpm_all_log10p1_ZFY %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_ZFY_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_ZFY, aes(x = gender, y = log10p1_ZFY, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA ZFY Gene Expression by Gender",
+       x = "Gender",
+       y = "ZFY Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_ZFY_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_ZFY_allcancers.png", plot = violin_ZFY_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for ZFY
+median_males_ZFY_log10p1 <- median(genes_tpm_all_log10p1_ZFY$log10p1_ZFY[genes_tpm_all_log10p1_ZFY$gender == "MALE"])
+
+print(paste("median ZFY expression for males:", median_males_ZFY_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_ZFY <- genes_tpm_all_log10p1_ZFY %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_ZFY_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_ZFY, aes(x = gender, y = log10p1_ZFY, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA ZFY Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "ZFY Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_ZFY$log10p1_ZFY) * 1.1, 
+           label = paste("n =", sample_counts_ZFY$n[sample_counts_ZFY$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_ZFY$log10p1_ZFY) * 1.1, 
+           label = paste("n =", sample_counts_ZFY$n[sample_counts_ZFY$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_ZFY_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_ZFY_allcancers_log10p1.png", plot = violin_ZFY_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_ZFY_allcancers_log10p1.pdf", plot = violin_ZFY_allcancers_log10p1)
+```
+
+
+
+## USP9Y Thresholds
+```{r}
+# USP9Y
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in USP9Y
+sum(is.na(all_cancers_sex_genes_tpm$USP9Y)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_USP9Y <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_USP9Y = log10(1 + USP9Y))
+
+# Remove rows with NA in USP9Y or gender
+genes_tpm_all_log10p1_USP9Y <- na.omit(genes_tpm_all_log10p1_USP9Y[, c("log10p1_USP9Y", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_USP9Y_log10p1 <- genes_tpm_all_log10p1_USP9Y %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_USP9Y_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_USP9Y, aes(x = gender, y = log10p1_USP9Y, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA USP9Y Gene Expression by Gender",
+       x = "Gender",
+       y = "USP9Y Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_USP9Y_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_USP9Y_allcancers.png", plot = violin_USP9Y_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for USP9Y
+median_males_USP9Y_log10p1 <- median(genes_tpm_all_log10p1_USP9Y$log10p1_USP9Y[genes_tpm_all_log10p1_USP9Y$gender == "MALE"])
+
+print(paste("median USP9Y expression for males:", median_males_USP9Y_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_USP9Y <- genes_tpm_all_log10p1_USP9Y %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_USP9Y_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_USP9Y, aes(x = gender, y = log10p1_USP9Y, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA USP9Y Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "USP9Y Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_USP9Y$log10p1_USP9Y) * 1.1, 
+           label = paste("n =", sample_counts_USP9Y$n[sample_counts_USP9Y$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_USP9Y$log10p1_USP9Y) * 1.1, 
+           label = paste("n =", sample_counts_USP9Y$n[sample_counts_USP9Y$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_USP9Y_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_USP9Y_allcancers_log10p1.png", plot = violin_USP9Y_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_USP9Y_allcancers_log10p1.pdf", plot = violin_USP9Y_allcancers_log10p1)
+```
+
+
+
+## DDX3Y Thresholds
+```{r}
+# DDX3Y
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in DDX3Y
+sum(is.na(all_cancers_sex_genes_tpm$DDX3Y)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_DDX3Y <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_DDX3Y = log10(1 + DDX3Y))
+
+# Remove rows with NA in DDX3Y or gender
+genes_tpm_all_log10p1_DDX3Y <- na.omit(genes_tpm_all_log10p1_DDX3Y[, c("log10p1_DDX3Y", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_DDX3Y_log10p1 <- genes_tpm_all_log10p1_DDX3Y %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_DDX3Y_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_DDX3Y, aes(x = gender, y = log10p1_DDX3Y, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA DDX3Y Gene Expression by Gender",
+       x = "Gender",
+       y = "DDX3Y Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_DDX3Y_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_DDX3Y_allcancers.png", plot = violin_DDX3Y_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for DDX3Y
+median_males_DDX3Y_log10p1 <- median(genes_tpm_all_log10p1_DDX3Y$log10p1_DDX3Y[genes_tpm_all_log10p1_DDX3Y$gender == "MALE"])
+
+print(paste("median DDX3Y expression for males:", median_males_DDX3Y_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_DDX3Y <- genes_tpm_all_log10p1_DDX3Y %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_DDX3Y_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_DDX3Y, aes(x = gender, y = log10p1_DDX3Y, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA DDX3Y Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "DDX3Y Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_DDX3Y$log10p1_DDX3Y) * 1.1, 
+           label = paste("n =", sample_counts_DDX3Y$n[sample_counts_DDX3Y$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_DDX3Y$log10p1_DDX3Y) * 1.1, 
+           label = paste("n =", sample_counts_DDX3Y$n[sample_counts_DDX3Y$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_DDX3Y_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_DDX3Y_allcancers_log10p1.png", plot = violin_DDX3Y_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_DDX3Y_allcancers_log10p1.pdf", plot = violin_DDX3Y_allcancers_log10p1)
+```
+
+
+
+## UTY Thresholds
+```{r}
+# UTY
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in UTY
+sum(is.na(all_cancers_sex_genes_tpm$UTY)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_UTY <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_UTY = log10(1 + UTY))
+
+# Remove rows with NA in UTY or gender
+genes_tpm_all_log10p1_UTY <- na.omit(genes_tpm_all_log10p1_UTY[, c("log10p1_UTY", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_UTY_log10p1 <- genes_tpm_all_log10p1_UTY %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_UTY_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_UTY, aes(x = gender, y = log10p1_UTY, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA UTY Gene Expression by Gender",
+       x = "Gender",
+       y = "UTY Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_UTY_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_UTY_allcancers.png", plot = violin_UTY_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for UTY
+median_males_UTY_log10p1 <- median(genes_tpm_all_log10p1_UTY$log10p1_UTY[genes_tpm_all_log10p1_UTY$gender == "MALE"])
+
+print(paste("median UTY expression for males:", median_males_UTY_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_UTY <- genes_tpm_all_log10p1_UTY %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_UTY_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_UTY, aes(x = gender, y = log10p1_UTY, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA UTY Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "UTY Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_UTY$log10p1_UTY) * 1.1, 
+           label = paste("n =", sample_counts_UTY$n[sample_counts_UTY$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_UTY$log10p1_UTY) * 1.1, 
+           label = paste("n =", sample_counts_UTY$n[sample_counts_UTY$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_UTY_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_UTY_allcancers_log10p1.png", plot = violin_UTY_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_UTY_allcancers_log10p1.pdf", plot = violin_UTY_allcancers_log10p1)
+```
+
+
+
+## KDM5D Thresholds
+```{r}
+# KDM5D
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in KDM5D
+sum(is.na(all_cancers_sex_genes_tpm$KDM5D)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_KDM5D <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_KDM5D = log10(1 + KDM5D))
+
+# Remove rows with NA in KDM5D or gender
+genes_tpm_all_log10p1_KDM5D <- na.omit(genes_tpm_all_log10p1_KDM5D[, c("log10p1_KDM5D", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_KDM5D_log10p1 <- genes_tpm_all_log10p1_KDM5D %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_KDM5D_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_KDM5D, aes(x = gender, y = log10p1_KDM5D, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA KDM5D Gene Expression by Gender",
+       x = "Gender",
+       y = "KDM5D Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_KDM5D_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_KDM5D_allcancers.png", plot = violin_KDM5D_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for KDM5D
+median_males_KDM5D_log10p1 <- median(genes_tpm_all_log10p1_KDM5D$log10p1_KDM5D[genes_tpm_all_log10p1_KDM5D$gender == "MALE"])
+
+print(paste("median KDM5D expression for males:", median_males_KDM5D_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_KDM5D <- genes_tpm_all_log10p1_KDM5D %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_KDM5D_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_KDM5D, aes(x = gender, y = log10p1_KDM5D, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA KDM5D Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "KDM5D Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_KDM5D$log10p1_KDM5D) * 1.1, 
+           label = paste("n =", sample_counts_KDM5D$n[sample_counts_KDM5D$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_KDM5D$log10p1_KDM5D) * 1.1, 
+           label = paste("n =", sample_counts_KDM5D$n[sample_counts_KDM5D$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_KDM5D_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_KDM5D_allcancers_log10p1.png", plot = violin_KDM5D_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_KDM5D_allcancers_log10p1.pdf", plot = violin_KDM5D_allcancers_log10p1)
+```
+
+
+
+## EIF1AY Thresholds
+```{r}
+# EIF1AY
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in EIF1AY
+sum(is.na(all_cancers_sex_genes_tpm$EIF1AY)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_EIF1AY <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_EIF1AY = log10(1 + EIF1AY))
+
+# Remove rows with NA in EIF1AY or gender
+genes_tpm_all_log10p1_EIF1AY <- na.omit(genes_tpm_all_log10p1_EIF1AY[, c("log10p1_EIF1AY", "Cancer.Name", "gender")])
+
+# Precompute the counts of samples by Cancer Name and gender
+sample_counts_EIF1AY_log10p1 <- genes_tpm_all_log10p1_EIF1AY %>%
+  group_by(Cancer.Name, gender) %>%
+  summarize(count = n(), .groups = 'drop')
+
+# Plot
+violin_EIF1AY_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_EIF1AY, aes(x = gender, y = log10p1_EIF1AY, fill = gender)) +
+  geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) +
+  geom_jitter(size = 0.05, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA EIF1AY Gene Expression by Gender",
+       x = "Gender",
+       y = "EIF1AY Gene Expression (log10p1)") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 5, angle = 45, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#E69F00", "FEMALE" = "#999999")) +
+  scale_color_manual(values = c("black", "black")) #+
+  #ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_EIF1AY_allcancers_log10p1
+
+# Save the plot if needed
+# ggsave(filename = "violin_EIF1AY_allcancers.png", plot = violin_EIF1AY_allcancers, width = 10, height = 8, dpi = 300)
+
+
+
+# Determine median of gene expression for males for EIF1AY
+median_males_EIF1AY_log10p1 <- median(genes_tpm_all_log10p1_EIF1AY$log10p1_EIF1AY[genes_tpm_all_log10p1_EIF1AY$gender == "MALE"])
+
+print(paste("median EIF1AY expression for males:", median_males_EIF1AY_log10p1))
+
+# Determine high and low threshold of the median 
+### High threshold
+expressed <- log10(1+10)
+
+print(paste("Expressed:", expressed))
+
+intermediate <- log10(1+1)
+
+print(paste("Intermediate:", intermediate))
+
+
+# Calculate the number of FEMALES and MALES 
+sample_counts_EIF1AY <- genes_tpm_all_log10p1_EIF1AY %>%
+  group_by(gender) %>%
+  summarise(n = n())
+
+# Plot with thresholds
+violin_EIF1AY_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_EIF1AY, aes(x = gender, y = log10p1_EIF1AY, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  #facet_wrap(~ Cancer.Name, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Adjust width as needed
+  labs(title = "TCGA EIF1AY Gene Expression by Gender (All Cancers)",
+       x = "Gender",
+       y = "EIF1AY Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 5),  # Adjust the size for legend text
+    legend.title = element_text(size = 7),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 7, vjust = 0.5, hjust = 0.5),
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue", "FEMALE" = "royalblue")) +
+  scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+  geom_hline(yintercept = expressed, linetype="dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype="dashed", color = "blue", size = 0.5) +
+  
+  # Add labels for thresholds with actual values
+  annotate("text", x = 1.5, y = expressed, 
+           label = paste("Expressed:", round(expressed, 2)), 
+           color = "red", vjust = -0.5, size = 2) +
+  annotate("text", x = 1.5, y = intermediate, 
+           label = paste("Intermediate:", round(intermediate, 2)), 
+           color = "blue", vjust = -0.5, size = 2) +
+  
+  # Add a custom legend for the threshold lines
+  scale_linetype_manual(name = "Thresholds", 
+                        values = c("dashed"),
+                        guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+  
+  # Add sample counts for each gender
+  annotate("text", x = 1, y = max(genes_tpm_all_log10p1_EIF1AY$log10p1_EIF1AY) * 1.1, 
+           label = paste("n =", sample_counts_EIF1AY$n[sample_counts_EIF1AY$gender == "FEMALE"]), 
+           color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+  annotate("text", x = 2, y = max(genes_tpm_all_log10p1_EIF1AY$log10p1_EIF1AY) * 1.1, 
+           label = paste("n =", sample_counts_EIF1AY$n[sample_counts_EIF1AY$gender == "MALE"]), 
+           color = "black", size = 3, vjust = -1)  + # Label for MALE
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+violin_EIF1AY_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_EIF1AY_allcancers_log10p1.png", plot = violin_EIF1AY_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+#Save as PDF
+ggsave(filename = "violin_EIF1AY_allcancers_log10p1.pdf", plot = violin_EIF1AY_allcancers_log10p1)
+```
+
+
+
+
+## Violin plots of XIST for FEMALE's samples only and for sample types 'Primary Tumor'
+```{r}
+# XIST
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in XIST
+sum(is.na(all_cancers_sex_genes_tpm$XIST)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_XIST <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_XIST = log10(1 + XIST))
+
+# Remove rows with NA in XIST or gender
+genes_tpm_all_log10p1_XIST <- na.omit(genes_tpm_all_log10p1_XIST[, c("Cancer.Name", "gender", "sample_type", "log10p1_XIST")])
+
+
+# Filter the data for FEMALE samples only
+genes_tpm_all_log10p1_XIST_female <- genes_tpm_all_log10p1_XIST %>%
+  filter(gender == "FEMALE") %>%
+  filter(sample_type == "Primary Tumor")
+
+# Plot with thresholds for FEMALE samples and cancer names on the x-axis
+violin_XIST_female_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_XIST_female, aes(x = Cancer.Name, y = log10p1_XIST, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  labs(title = "TCGA XIST Gene Expression of Female Primary Tumors (All Cancers)",
+       x = "Cancer Name",
+       y = "XIST Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 4, angle = 45, vjust = 1, hjust = 1, margin = margin(t = 0)),  # Adjust vjust and margin
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("FEMALE" = "royalblue")) +
+  scale_color_manual(values = rep("black", length(unique(genes_tpm_all_log10p1_XIST_female$Cancer.Name)))) #+
+  # geom_hline(yintercept = expressed, linetype = "dashed", color = "red", size = 0.5) +
+  # geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue", size = 0.5) +
+  
+  # # Add labels for thresholds
+  # annotate("text", x = 1.5, y = expressed, 
+  #          label = paste("Expressed:", round(expressed, 2)), 
+  #          color = "red", vjust = -0.5, size = 2) +
+  # annotate("text", x = 1.5, y = intermediate, 
+  #          label = paste("Intermediate:", round(intermediate, 2)), 
+  #          color = "blue", vjust = -0.5, size = 2) #+
+  # 
+  # ylim(-0.5, 4)  # Set the y-axis limits
+
+# Display the plot
+violin_XIST_female_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_XIST_female_allcancers_log10p1.png", plot = violin_XIST_female_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+# Save as PDF
+ggsave(filename = "violin_XIST_female_allcancers_log10p1.pdf", plot = violin_XIST_female_allcancers_log10p1)
+```
+
+
+
+## Violin plots of DDX3Y for MALE's samples only and for sample types 'Primary Tumor'
+```{r}
+# DDX3Y
+# Check for any NAs in gender
+sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+
+# Check for any NAs in DDX3Y
+sum(is.na(all_cancers_sex_genes_tpm$DDX3Y)) 
+
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_DDX3Y <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_DDX3Y = log10(1 + DDX3Y))
+
+# Remove rows with NA in DDX3Y or gender
+genes_tpm_all_log10p1_DDX3Y <- na.omit(genes_tpm_all_log10p1_DDX3Y[, c("Cancer.Name", "gender", "sample_type", "log10p1_DDX3Y")])
+
+
+# Filter the data for MALE samples only
+genes_tpm_all_log10p1_DDX3Y_male <- genes_tpm_all_log10p1_DDX3Y %>%
+  filter(gender == "MALE") %>%
+  filter(sample_type == "Primary Tumor")
+
+# Plot with thresholds for MALE samples and cancer names on the x-axis
+violin_DDX3Y_male_allcancers_log10p1 <- ggplot(genes_tpm_all_log10p1_DDX3Y_male, aes(x = Cancer.Name, y = log10p1_DDX3Y, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter(size = 0.0000000000000005, aes(color = gender)) +
+  labs(title = "TCGA DDX3Y Gene Expression of Male Primary Tumors (All Cancers)",
+       x = "Cancer Name",
+       y = "DDX3Y Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 4),  # Adjust the size for legend text
+    legend.title = element_text(size = 5),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 4, angle = 45, vjust = 1, hjust = 1, margin = margin(t = 0)),  # Adjust vjust and margin
+    axis.text.y = element_text(size = 5),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "lightblue")) +
+  scale_color_manual(values = rep("black", length(unique(genes_tpm_all_log10p1_DDX3Y_male$Cancer.Name)))) #+
+  # geom_hline(yintercept = expressed, linetype = "dashed", color = "red", size = 0.5) +
+  # geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue", size = 0.5) +
+  
+  # # Add labels for thresholds
+  # annotate("text", x = 1.5, y = expressed, 
+  #          label = paste("Expressed:", round(expressed, 2)), 
+  #          color = "red", vjust = -0.5, size = 2) +
+  # annotate("text", x = 1.5, y = intermediate, 
+  #          label = paste("Intermediate:", round(intermediate, 2)), 
+  #          color = "blue", vjust = -0.5, size = 2) #+
+  # 
+  # ylim(-0.5, 4)  # Set the y-axis limits
+
+# Display the plot
+violin_DDX3Y_male_allcancers_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_DDX3Y_male_allcancers_log10p1.png", plot = violin_DDX3Y_male_allcancers_log10p1, width = 10, height = 8, dpi = 300)
+
+# Save as PDF
+ggsave(filename = "violin_DDX3Y_male_allcancers_log10p1.pdf", plot = violin_DDX3Y_male_allcancers_log10p1)
+```
+
+
+
+## Heatmap 
+```{r}
+# Subset the data to include only the columns of interest (gene expressions, gender, and sample_type)
+sex_genes <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor") %>%  # Filter for 'Primary Tumor'
+  select(cases, cases.submitter_id, sample_type, gender, XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY)
+
+# Apply log10(1 + gene_expression) transformation to the data
+sex_genes <- sex_genes %>%
+  mutate(across(XIST:EIF1AY, ~ log10(1 + .)))
+
+# Order genes based on the grouping: XIST (X), RPS4Y1, ZFY (Yp), USP9Y, DDX3Y, UTY, KDM5D, EIF1AY (Yq)
+gene_order <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Create a separate dataframe for males and females
+sex_genes_male <- filter(sex_genes, gender == "MALE") %>% select(-gender)
+sex_genes_female <- filter(sex_genes, gender == "FEMALE") %>% select(-gender)
+
+# Reorder columns according to the specific chromosome grouping
+sex_genes_male <- sex_genes_male[, gene_order]
+sex_genes_female <- sex_genes_female[, gene_order]
+
+# Combine the data back together for heatmap
+combined_genes <- rbind(
+  mutate(sex_genes_female, gender = "FEMALE"),
+  mutate(sex_genes_male, gender = "MALE")
+)
+
+# Create unique sample labels by combining gender with row numbers to avoid duplicates
+combined_genes$Sample <- paste(combined_genes$gender, seq_len(nrow(combined_genes)), sep = "_")
+
+# Transpose the data so that genes are rows and samples (genders) are columns
+combined_genes_t <- combined_genes %>%
+  select(-gender) %>%
+  column_to_rownames("Sample") %>%
+  t()
+
+# Create chromosome labels for the genes for gene localization in respective chromosome
+chromosome_labels <- c("X", "Yp", "Yp", "Yq", "Yq", "Yq", "Yq", "Yq")
+
+# Extract gene names (without chromosome labels)
+gene_names <- rownames(combined_genes_t)
+
+# Create a new dataframe with separate Gene and Chromosome columns
+combined_genes_df <- data.frame(
+  Chromosome = chromosome_labels,
+  Gene = gene_names,
+  combined_genes_t
+)
+```
+
+
+## Incorporating the reordering of FEMALEs based on XIST and MALES based on RPS4Y1 genes (High to low)
+```{r}
+# Load necessary libraries
+library(ComplexHeatmap)
+library(circlize)  # For color functions
+library(grid)
+
+# Prepare the expression matrix (excluding 'Chromosome' and 'Gene' columns)
+expression_matrix <- as.matrix(combined_genes_df[, -c(1, 2)])  # Exclude Chromosome and Gene columns
+rownames(expression_matrix) <- combined_genes_df$Gene  # Set the gene names as row names
+
+# Define the chromosome grouping labels (to appear once per gene)
+chromosome_groups <- factor(combined_genes_df$Chromosome, levels = c("X", "Yp", "Yq"))
+
+# Create row annotations for chromosome groups (one per gene)
+chromosome_annotation <- rowAnnotation(
+  Chromosome = anno_text(combined_genes_df$Chromosome, 
+                         which = "row", rot = 90, just = "center", 
+                         gp = gpar(fontsize = 10))
+)
+
+# # Define colors for the heatmap (adjustable)
+# heatmap_colors <- colorRamp2(c(min(expression_matrix), 0, max(expression_matrix)),
+#                              c("blue", "white", "red"))
+
+# Get the indices of FEMALE and MALE samples using grep
+female_indices <- grep("^FEMALE", colnames(expression_matrix))
+male_indices <- grep("^MALE", colnames(expression_matrix))
+
+# # Print indices to diagnose if they are found
+# print(female_indices)
+# print(male_indices)
+
+# # Check if indices are valid
+# if (length(female_indices) == 0 || length(male_indices) == 0) {
+#   stop("No FEMALE or MALE columns found in the expression matrix.")
+# }
+
+# Reorder FEMALE samples based on XIST expression (highest to lowest)
+female_order <- order(expression_matrix["XIST", female_indices], decreasing = TRUE)
+female_reordered_indices <- female_indices[female_order]
+
+# Reorder MALE samples based on RPS4Y1 expression (highest to lowest)
+male_order <- order(expression_matrix["RPS4Y1", male_indices], decreasing = TRUE)
+male_reordered_indices <- male_indices[male_order]
+
+# Combine reordered indices
+new_order <- c(female_reordered_indices, male_reordered_indices)
+
+# Reorder the expression matrix accordingly
+expression_matrix <- expression_matrix[, new_order]
+
+# Create the column split factor again based on new ordering
+new_column_split <- factor(c(rep("FEMALE", length(female_reordered_indices)), 
+                              rep("MALE", length(male_reordered_indices))),
+                           levels = c("FEMALE", "MALE"))
+
+# # Verify that the new_column_split matches the reordered expression_matrix
+# if (length(new_column_split) != ncol(expression_matrix)) {
+#   stop("Column split factor length does not match the expression matrix columns.")
+# }
+
+# Scaling by row: Min-Max Scaling
+scaled_expression_matrix <- t(apply(expression_matrix, 1, function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}))
+
+# Create the heatmap with custom layer function for individual row colors
+heatmap <- Heatmap(scaled_expression_matrix,
+        name = "Scaled Expression",    
+        col = c("royalblue3", "white", "red"),
+        cluster_rows = FALSE,         # Maintain gene order, no clustering
+        cluster_columns = FALSE,      # Maintain sample order, no clustering
+        row_split = chromosome_groups,  # Group genes by Chromosome
+        column_split = new_column_split,  # Split columns by gender
+        column_gap = unit(1, "mm"),
+        show_row_names = TRUE,        # Display gene names on the left
+        show_column_names = FALSE,
+        row_names_side = "left",      # Move gene names to the left
+        row_title_rot = 90,           # Rotate group labels (X, Yp, Yq) 90 degrees
+        row_title_gp = gpar(fontsize = 12),  # Font size for the chromosome labels
+        row_title = c("X", "Yp", "Yq"),      # Labels for chromosome groups
+        column_title = c("FEMALE", "MALE"), # Set titles for gender columns
+        column_title_side = "bottom",   # Place the titles at the bottom for Gender
+)
+
+# Print the Heatmap
+draw(heatmap)
+# dev.off()  # Close the device after drawing the heatmap
+
+# # Add main title using grid.text
+# grid.text("TCGA Sex Chromosome Gene Expressions by Gender", 
+#           x = unit(0.5, "npc"), y = unit(0.95, "npc") - unit(2, "lines"), 
+#           gp = gpar(fontsize = 14, fontface = "bold"))  # Adjust fontsize and fontface as needed
+
+# # Save the heatmap as a PNG
+# png("Heatmap_TCGA_All_Cancers_Sex_Genes.png", width = 1200, height = 800, res = 150)  # Adjust resolution as needed
+# draw(heatmap)
+# dev.off()  # Close the device after drawing the heatmap
+# 
+# Save the heatmap as a PDF
+pdf("Heatmap_TCGA_All_Cancers_Sex_Genes.pdf")  # Adjust width and height as needed
+draw(heatmap)
+dev.off()  # Close the device after drawing the heatmap
+# 
+# # Save the heatmap as a JPG
+# jpeg("Heatmap_TCGA_All_Cancers_Sex_Genes.jpeg", width = 1200, height = 800, res = 150)
+# draw(heatmap)
+# dev.off()
+# 
+# # Save image of the complete heat map as SVG
+# svg("Heatmap_TCGA_All_Cancers_Sex_Genes.svg", width = 10, height = 10)
+# print(heatmap)
+# dev.off()
+# 
+# # Save the heatmap as a TIFF
+# tiff("Heatmap_TCGA_All_Cancers_Sex_Genes.tiff", width = 1200, height = 800, res = 150)
+# draw(heatmap)
+# dev.off()
+# 
+# # Load Cairo
+# library(Cairo)
+# 
+# # Save as PNG using CairoPNG
+# CairoPNG("Heatmap_TCGA_All_Cancers_Sex_Genes_Cairo.png", width = 4800, height = 3200, res = 300)
+# draw(heatmap)
+# dev.off()
+```
