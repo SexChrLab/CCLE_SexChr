@@ -1,0 +1,104 @@
+---
+title: "TCGA All Cancers TPMs of Sex Chromosome Genes of Interest"
+author: "Robert Phavong"
+date: "2024-09-13"
+output: html_document
+---
+
+
+## Set options for printing reports
+```{r Printoptions}
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+## Set options to prevent plots from being cut off when printing report
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=6)
+```
+
+
+# Load required libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(viridis)  # for the viridis color palette (colorblind-friendly!)
+```
+
+
+# Set working directory
+```{r}
+# Specify the directory
+working_path_tpms <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Tumor_Adjacent/TCGA_AllCancers_TPMs/"
+
+setwd(working_path_tpms)
+
+working_path_tpms <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Tumor_Adjacent/TCGA_AllCancers_TPMs/"
+```
+
+
+# Combine all the TPMs with sex chromsome genes of interest from TCGA for all cancer types
+```{r}
+# Specify the directory containing the CSV files
+csv_directory <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Tumor_Adjacent/TCGA_AllCancers_TPMs/"
+
+# List all CSV files in the directory
+csv_files <- list.files(path = csv_directory, pattern = "*.csv", full.names = TRUE)
+
+# Read and combine all CSV files into one data frame
+genes_tpm_all <- csv_files %>%
+  lapply(read.csv) %>%  # Read each CSV file
+  bind_rows()  # Combine all data frames
+```
+
+
+# Add the full names for all cancer types
+## Names taken from: https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tcga-study-abbreviations 
+```{r}
+# Add the "Cancer Name" column
+genes_tpm_all_names <- genes_tpm_all %>%
+  mutate(Cancer.Name = case_when(
+    Cancer.Type == "LIHC" ~ "Liver Hepatocellular Carcinoma",
+    Cancer.Type == "GBM" ~ "Glioblastoma Multiforme",
+    Cancer.Type == "LAML" ~ "Acute Myeloid Leukemia",
+    Cancer.Type == "ACC" ~ "Adrenocortical Carcinoma",
+    Cancer.Type == "BLCA" ~ "Bladder Urothelial Carcinoma",
+    Cancer.Type == "LGG" ~ "Brain Lower Grade Glioma",
+    Cancer.Type == "BRCA" ~ "Breast Invasive Carcinoma",
+    Cancer.Type == "CESC" ~ "Cervical Squamous Cell Carcinoma and Endocervical Adenocarcinoma",
+    Cancer.Type == "CHOL" ~ "Cholangiocarcinoma",
+    Cancer.Type == "COAD" ~ "Colon Adenocarcinoma",
+    Cancer.Type == "ESCA" ~ "Esophageal Adenocarcinoma",
+    Cancer.Type == "HNSC" ~ "Head and Neck Squamous Cell Carcinoma",
+    Cancer.Type == "KICH" ~ "Kidney Chromophobe",
+    Cancer.Type == "KIRC" ~ "Kidney Renal Clear Cell Carcinoma",
+    Cancer.Type == "KIRP" ~ "Kidney Renal Papillary Cell Carcinoma",
+    Cancer.Type == "LUAD" ~ "Lung Adenocarcinoma",
+    Cancer.Type == "LUSC" ~ "Lung Squamous Cell Carcinoma",
+    Cancer.Type == "DLBC" ~ "Lymphoid Neoplasm Diffuse Large B-cell Lymphoma",
+    Cancer.Type == "MESO" ~ "Mesothelioma",
+    Cancer.Type == "OV" ~ "Ovarian Serous Cystadenocarcinoma",
+    Cancer.Type == "PAAD" ~ "Pancreatic Adenocarcinoma",
+    Cancer.Type == "PCPG" ~ "Pheochromocytoma and Paraganglioma",
+    Cancer.Type == "PRAD" ~ "Prostate Adenocarcinoma",
+    Cancer.Type == "READ" ~ "Rectum Adenocarcinoma",
+    Cancer.Type == "SARC" ~ "Sarcoma",
+    Cancer.Type == "SKCM" ~ "Skin Cutaneous Melanoma",
+    Cancer.Type == "STAD" ~ "Stomach Adenocarcinoma",
+    Cancer.Type == "TGCT" ~ "Testicular Germ Cell Tumors",
+    Cancer.Type == "THCA" ~ "Thyroid Carcinoma",
+    Cancer.Type == "THYM" ~ "Thymoma",
+    Cancer.Type == "UCS" ~ "Uterine Carcinosarcoma",
+    Cancer.Type == "UCEC" ~ "Uterine Corpus Endometrial Carcinoma",
+    Cancer.Type == "UVM" ~ "Uveal Melanoma",
+  ))
+
+# Reorder columns to make "Cancer.Name" the fourth column
+genes_tpm_all_names <- genes_tpm_all_names %>%
+  select(cases, cases.submitter_id, Cancer.Type, Cancer.Name, everything())
+
+# # Convert dataframe into CSV file
+# write.csv(genes_tpm_all_names, file = "genes_tpm_all_names.csv", row.names = FALSE)
+```
