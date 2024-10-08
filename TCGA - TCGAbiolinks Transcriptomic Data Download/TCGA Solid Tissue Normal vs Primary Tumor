@@ -1,0 +1,838 @@
+---
+title: "TCGA Solid Tissue Normal vs Primary Tumor"
+author: "Robert Phavong"
+date: "2024-09-14"
+output: html_document
+---
+
+
+## Set options for printing reports
+```{r Printoptions}
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+## Set options to prevent plots from being cut off when printing report
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=6)
+```
+
+
+# Load required libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(viridis)  # for the viridis color palette (colorblind-friendly!)
+```
+
+
+# Set working directory
+```{r}
+# Specify the directory
+working_path_normal_tumor <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_SolidTissue_Normal_Primary_Tumor/"
+
+setwd(working_path_normal_tumor)
+
+working_path_normal_tumor <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_SolidTissue_Normal_Primary_Tumor/"
+```
+
+
+# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes), and inferred sex chromosome complements
+```{r}
+inferred_sex_chromosome_complements_data <- read.csv("inferred_sex_chromosome_complement.csv", header = TRUE)
+```
+
+
+# Extract rows with matching 'cases.submitter_id's from the 'inferred_sex_chromosome_complements_data'
+```{r}
+# Identify cases.submitter_id that appear more than once
+matching_ids <- inferred_sex_chromosome_complements_data %>%
+  group_by(cases.submitter_id) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+# Extract rows with matching cases.submitter_id values
+matching_ids <- inferred_sex_chromosome_complements_data %>%
+  semi_join(matching_ids, by = "cases.submitter_id")
+
+unique(matching_ids$Cancer.Name)
+```
+
+
+# Extract only samples that having matching cases.submitter_ids for Solid Tissue Normal and Primary Tumor samples
+```{r}
+# Identify cases.submitter_id that have both "Primary Tumor" and "Solid Tissue Normal"
+ids_solidnormal_primary <- matching_ids %>%
+  filter(sample_type %in% c("Primary Tumor", "Solid Tissue Normal")) %>%
+  group_by(cases.submitter_id) %>%
+  filter(n_distinct(sample_type) == 2) %>%
+  ungroup()
+
+# Extract only rows with "Primary Tumor" and "Solid Tissue Normal" for these IDs
+normal_primary <- matching_ids %>%
+  semi_join(ids_solidnormal_primary, by = "cases.submitter_id") %>%
+  filter(sample_type %in% c("Primary Tumor", "Solid Tissue Normal"))
+
+# Summarize the dataframe
+summary_table <- normal_primary %>%
+  # Group by Cancer.Name, sample_type, gender, and inferred_sex_chromosome_complements
+  group_by(Cancer.Name, sample_type, gender, inferred_sex_chromosome_complements) %>%
+  # Count the number of samples in each group
+  summarize(sample_count = n(), .groups = 'drop') %>%
+  # Optionally, arrange the summary table for better readability
+  arrange(Cancer.Name, sample_type, gender, inferred_sex_chromosome_complements)
+
+# # Create CSV file of combined_data_normal_primary
+# write.csv(normal_primary, file = "normal_primary.csv", row.names = FALSE)
+```
+
+
+# Determine the different karyotypes found in the 'inferred_sex_chromosome_complement'
+```{r}
+# Determine the unqiue sex chromosome karyotypes
+unique(inferred_sex_chromosome_complements_data$inferred_sex_chromosome_complements)
+
+# Summarize the number of combinations for 'inferred_sex_chromosome_complement' by 'gender' and 'sample_type'
+summary_table_complements <- inferred_sex_chromosome_complements_data %>%
+  group_by(sample_type, gender, inferred_sex_chromosome_complements) %>%
+  summarise(count = n(), .groups = 'drop')
+```
+
+
+
+## Solid Tissue Normal vs Primary Tumor
+```{r}
+# Filter out cases with more than one Primary Tumor
+normal_primary_filtered <- normal_primary %>%
+  group_by(cases.submitter_id) %>%
+  filter(sum(sample_type == "Primary Tumor") == 1) %>%
+  ungroup()
+
+# Pivot the data to long format
+normal_primary_long <- normal_primary_filtered %>%
+  pivot_longer(cols = c(XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY),
+               names_to = "gene",
+               values_to = "expression_level")
+```
+
+
+
+## Heatmaps for Solid Tissue Normal and respective Primary Tumor by gender, cancer types of interest and XIST, RPS4Y1, and DDX3Y sex chromosome complement genes
+```{r}
+# Filter for only the genes of interest
+normal_primary_long_three_genes <- normal_primary_long %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "DDX3Y"))
+
+# Function to create heatmaps for each Cancer.Name and gene, with vertical gender labels on the right
+create_cancer_heatmap <- function(data, cancer_name, gene_name) {
+  # Filter the data for the specific cancer type and gene
+  data_filtered <- data %>%
+    filter(Cancer.Name == cancer_name, gene == gene_name)
+  
+  # Get the order of cases based on the expression level in Solid Tissue Normal
+  case_order <- data_filtered %>%
+    filter(sample_type == "Solid Tissue Normal") %>%
+    arrange(desc(expression_level)) %>%
+    pull(cases.submitter_id) %>%
+    unique()  # Ensure no duplicate cases in the order
+  
+  # Create the heatmap
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Solid Tissue Normal", "Primary Tumor")), 
+             y = factor(cases.submitter_id, levels = case_order),  # Use the ordered factor for y
+             fill = expression_level)) +
+    geom_tile() +
+    scale_fill_gradient(low = "blue", high = "red") +
+    labs(title = paste(gene_name, "Expression in Solid Tissue Normal vs Primary Tumor for\n", cancer_name),
+         x = "Sample Type",
+         y = "Cases (cases.submitter_id)") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.text.y = element_text(size = 6),  # Adjust y-axis font size for better readability
+          legend.position = "right",
+          panel.spacing = unit(0.1, "lines"),
+          strip.text.y = element_text(angle = 0, hjust = 0.5),  # Rotate facet labels vertically
+          strip.background = element_blank()) +  # Remove background for clearer label placement
+          #panel.border = element_rect(color = "black", fill = NA)) +  # Add border to panels
+    facet_grid(gender ~ ., scales = "free_y", space = "free_y")  # Facet by gender with labels on the right
+}
+
+# Generate, print, and save heatmaps for each Cancer.Name and gene
+lapply(unique(normal_primary_long_three_genes$Cancer.Name), function(cn) {
+  lapply(c("XIST", "RPS4Y1", "DDX3Y"), function(gene) {
+    # Create the heatmap faceted by gender
+    heatmap_plot <- create_cancer_heatmap(normal_primary_long_three_genes, cn, gene)
+    
+    # Print the heatmap to view in RStudio
+    print(heatmap_plot)
+    
+    # Define the filename
+    filename <- paste0("Heatmap_normal_primary_", gene, "_", cn, ".png")
+    
+    # Save the heatmap (uncomment the line below to save the files)
+    # ggsave(filename, plot = heatmap_plot, width = 10, height = 8, dpi = 300)
+  })
+})
+```
+
+
+
+## Violin Plots plotting same results seen in Heatmaps connecting Solid Tissue Normal to respective Primary Tumor by gender, cancer types, and only XIST, RPS4Y1, and DDX3Y sex chromosome genes
+```{r}
+# Filter for only the genes of interest
+normal_primary_long_three_genes <- normal_primary_long %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "DDX3Y"))
+
+# Function to create violin plots for each Cancer.Name and gene, with gender panels side by side
+create_cancer_violin_plot <- function(data, cancer_name, gene_name) {
+  # Filter the data for the specific cancer type and gene
+  data_filtered <- data %>%
+    filter(Cancer.Name == cancer_name, gene == gene_name)
+  
+  # Create the violin plot with connecting lines
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Solid Tissue Normal", "Primary Tumor")), 
+             y = expression_level,  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots, ignore NAs
+    geom_jitter(width = 0, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Add connecting lines
+    scale_fill_manual(values = c("Solid Tissue Normal" = "skyblue", "Primary Tumor" = "coral")) +
+    labs(title = paste(gene_name, "Expression in Solid Tissue Normal vs Primary Tumor for\n", cancer_name),
+         x = "Sample Type",
+         y = "Expression Level") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.text.y = element_text(size = 8),  # Adjust y-axis font size for better readability
+          legend.position = "none",  # Remove legend since it's redundant with x-axis
+          panel.spacing = unit(1, "lines"),
+          strip.text.x = element_text(angle = 0, hjust = 0.5),  # Keep facet labels horizontal
+          strip.background = element_blank()) +  # Remove background for clearer label placement
+    facet_wrap(~gender, ncol = 2, scales = "free_y", drop = FALSE)  # Facet by gender, keep all groups
+}
+
+# Generate, print, and save violin plots for each Cancer.Name and gene
+lapply(unique(normal_primary_long_three_genes$Cancer.Name), function(cn) {
+  lapply(c("XIST", "RPS4Y1", "DDX3Y"), function(gene) {
+    # Create the violin plot faceted by gender, side by side
+    violin_plot <- create_cancer_violin_plot(normal_primary_long_three_genes, cn, gene)
+    
+    # Print the violin plot to view in RStudio
+    print(violin_plot)
+    
+    # Define the filename
+    filename <- paste0("ViolinPlot_normal_primary_", gene, "_", cn, ".png")
+    
+    # Save the violin plot (uncomment the line below to save the files)
+    # ggsave(filename, plot = violin_plot, width = 10, height = 8, dpi = 300)
+  })
+})
+```
+
+
+
+
+
+## Violin Plots matching Solid Tissue Normal to corresponding Primary Tumor for each gene, gender, and cancer
+### Keeping to cross varify that the cancer types removed below are truly under n=3 for pairings between Solid Tissue Normal and respective Primary Tumor by cancer, gender, and gene
+```{r}
+# Filter for only the genes of interest
+normal_primary_long_all_sex_genes <- normal_primary_long %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"))
+
+# Define thresholds to include in Violin plots 
+### High threshold
+expressed <- log10(1 + 10)
+
+### Intermediate threshold
+intermediate <- log10(1 + 1)
+
+# Dummy data for threshold lines to include in the legend
+dummy_data <- data.frame(sample_type = c("Solid Tissue Normal", "Primary Tumor"),
+                         y = c(expressed, intermediate),
+                         threshold = c("High", "Intermediate"))
+
+### For confirmation purposes, wanted to see the counts for how many of Cancer.Name, sample_type, gender, gene to include the counts in the violin plots
+sample_counts_normal_primary <- normal_primary_long_all_sex_genes %>%
+  group_by(Cancer.Name, sample_type, gender, gene) %>%
+  summarise(sample_count = n()) %>%
+  ungroup()
+
+# Function to create violin plots for each gene and gender, faceted by Cancer.Name
+create_gender_specific_violin_plot <- function(data, gene_name, gender_filter) {
+  # Filter data for the specific gene and gender
+  data_filtered <- data %>%
+    filter(gene == gene_name, gender == gender_filter)
+  
+  # Calculate sample counts for each sample_type (confirmed from data frame created above: 'sample_counts_normal_primary')
+  sample_counts <- data_filtered %>%
+    group_by(Cancer.Name, sample_type, gender, gene) %>%
+    summarize(n = n())
+  
+  # Create the violin plot with connecting lines and threshold lines in the legend
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Solid Tissue Normal", "Primary Tumor")), 
+             y = log10(1 + expression_level),  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots
+    ylim(-0.5, 4) +  # Set y-axis limits
+    geom_jitter(width = 0.1, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Connecting lines
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red") +  # High threshold line
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue") +  # Intermediate threshold line
+    geom_line(data = dummy_data, aes(y = y, color = threshold), linetype = "dashed", size = 0.5) +  # Dummy lines for legend
+    geom_text(data = sample_counts, aes(x = sample_type, y = 3, label = paste0("n = ", n)), 
+              vjust = -0.5, size = 2, color = "black") +  # Add sample counts as labels
+    scale_fill_manual(values = c("Solid Tissue Normal" = "skyblue", "Primary Tumor" = "coral")) +
+    scale_color_manual(values = c("High" = "red", "Intermediate" = "blue"), 
+                       name = "Thresholds",
+                       labels = c("Expressed", "Intermediate")) +
+    labs(title = paste(gene_name, "Expression in", gender_filter, "Samples"),
+         x = "Sample Type",
+         y = "Expression Level (log10(1 + TPM))") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5),
+          axis.text.y = element_text(size = 4),  # Adjust y-axis font size for readability
+          strip.text.x = element_text(size = 5),  # Font size for facet labels
+          legend.text = element_text(size = 7),  # Adjust the size for legend text
+    legend.title = element_text(size = 8),  # Adjust the size for legend title
+          strip.background = element_blank()) +  # Remove facet background
+    facet_wrap(~Cancer.Name, ncol = 4, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Facet by Cancer.Name
+    guides(fill = guide_legend(override.aes = list(linetype = "blank")),  # Combine fill and color legends
+           color = guide_legend(override.aes = list(linetype = "dashed")))  # Add dashed line for thresholds
+}
+
+# Generate and print violin plots for each gene and gender separately
+lapply(c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"), function(gene) {
+  # Plot for FEMALE samples
+  violin_plot_female <- create_gender_specific_violin_plot(normal_primary_long_all_sex_genes, gene, "FEMALE")
+  print(violin_plot_female)
+  
+  # # Save the violin plot for FEMALE (optional)
+  # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_FEMALE_all_cancers.png"), plot = violin_plot_female, width = 12, height = 8, dpi = 300)
+  
+  # Plot for MALE samples
+  violin_plot_male <- create_gender_specific_violin_plot(normal_primary_long_all_sex_genes, gene, "MALE")
+  print(violin_plot_male)
+  
+  # # Save the violin plot for MALE (optional)
+  # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_MALE_all_cancers.png"), plot = violin_plot_male, width = 12, height = 8, dpi = 300)
+})
+```
+
+
+## Same code as above, but now removing samples that have less than 3 pairings within cancer type, by gender and gene
+```{r}
+# Filter for only the genes of interest
+normal_primary_long_all_sex_genes <- normal_primary_long %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"))
+
+# Count the number of matching cases per Cancer.Name, sample_type, and gender
+matched_counts <- normal_primary_long_all_sex_genes %>%
+  group_by(Cancer.Name, gender, cases.submitter_id, gene) %>%
+  filter(n_distinct(sample_type) == 2) %>%  # Ensure matching of Solid Tissue Normal and Primary Tumor
+  group_by(Cancer.Name, gender, gene) %>%
+  summarise(matched_sample_count = n()) %>%
+  ungroup()
+
+# Filter out Cancer types with fewer than 3 matched samples.
+### Note: using 6 because the code is counting each sample, i.e if case was 1 Solid Tissue Normal and 1 matching respective Primary Tumor, this counted as 2, when in reality this should only be counted as 1 pair). ###  
+filtered_cancer_data <- normal_primary_long_all_sex_genes %>%
+  inner_join(matched_counts %>% filter(matched_sample_count >= 6), by = c("Cancer.Name", "gender", "gene"))
+
+# Define thresholds to include in Violin plots 
+### High threshold
+expressed <- log10(1 + 10)
+
+### Intermediate threshold
+intermediate <- log10(1 + 1)
+
+# Dummy data for threshold lines to include in the legend
+dummy_data <- data.frame(sample_type = c("Solid Tissue Normal", "Primary Tumor"),
+                         y = c(expressed, intermediate),
+                         threshold = c("High", "Intermediate"))
+
+# Function to create violin plots for each gene and gender, faceted by Cancer.Name
+create_gender_specific_violin_plot <- function(data, gene_name, gender_filter) {
+  # Filter data for the specific gene and gender
+  data_filtered <- data %>%
+    filter(gene == gene_name, gender == gender_filter)
+  
+  # Calculate sample counts for each sample_type
+  sample_counts <- data_filtered %>%
+    group_by(Cancer.Name, sample_type, gender, gene) %>%
+    summarize(n = n())
+  
+  # Create the violin plot with connecting lines and threshold lines in the legend
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Solid Tissue Normal", "Primary Tumor")), 
+             y = log10(1 + expression_level),  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots
+    ylim(-0.5, 4) +  # Set y-axis limits
+    geom_jitter(width = 0.1, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Connecting lines
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red") +  # High threshold line
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue") +  # Intermediate threshold line
+    geom_line(data = dummy_data, aes(y = y, color = threshold), linetype = "dashed", size = 0.5) +  # Dummy lines for legend
+    geom_text(data = sample_counts, aes(x = sample_type, y = 3, label = paste0("n = ", n)), 
+              vjust = -0.5, size = 2, color = "black") +  # Add sample counts as labels
+    scale_fill_manual(values = c("Solid Tissue Normal" = "skyblue", "Primary Tumor" = "coral")) +
+    scale_color_manual(values = c("High" = "red", "Intermediate" = "blue"), 
+                       name = "Thresholds",
+                       labels = c("Expressed", "Intermediate")) +
+    labs(title = paste(gene_name, "Expression in", gender_filter, "Samples"),
+         x = "Sample Type",
+         y = "Expression Level (log10(1 + TPM))") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+          axis.text.y = element_text(size = 4),  # Adjust y-axis font size for readability
+          strip.text.x = element_text(size = 7),  # Font size for facet labels
+          legend.text = element_text(size = 7),  # Adjust the size for legend text
+          legend.title = element_text(size = 8),  # Adjust the size for legend title
+          strip.background = element_blank()) +  # Remove facet background
+    facet_wrap(~Cancer.Name, ncol = 4, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Facet by Cancer.Name
+    guides(fill = guide_legend(override.aes = list(linetype = "blank")),  # Combine fill and color legends
+           color = guide_legend(override.aes = list(linetype = "dashed")))  # Add dashed line for thresholds
+}
+
+# Generate and print violin plots for each gene and gender separately
+lapply(c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"), function(gene) {
+  # Plot for FEMALE samples
+  violin_plot_female_filtered <- create_gender_specific_violin_plot(filtered_cancer_data, gene, "FEMALE")
+  print(violin_plot_female_filtered)
+  
+  # # Save the violin plot for FEMALE (optional)
+  # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_FEMALE_all_cancers_filtered.png"), plot = violin_plot_female_filtered, dpi = 300)
+  
+  # Plot for MALE samples
+  violin_plot_male_filtered <- create_gender_specific_violin_plot(filtered_cancer_data, gene, "MALE")
+  print(violin_plot_male_filtered)
+  
+  # # Save the violin plot for MALE (optional)
+  # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_MALE_all_cancers_filtered.png"), plot = violin_plot_male_filtered, dpi = 300)
+})
+```
+
+## Same code as above, but including p-values using the 'wilcox.test()' 
+### (Note: doing separate to preserve the violin plots above)
+```{r}
+# Load required packages
+library(ggsignif) # to calculate and display the p-values on the violin plots
+
+# Filter for only the genes of interest
+normal_primary_long_all_sex_genes <- normal_primary_long %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"))
+
+# Count the number of matching cases per Cancer.Name, sample_type, and gender
+matched_counts <- normal_primary_long_all_sex_genes %>%
+  group_by(Cancer.Name, gender, cases.submitter_id, gene) %>%
+  filter(n_distinct(sample_type) == 2) %>%  # Ensure matching of Solid Tissue Normal and Primary Tumor
+  group_by(Cancer.Name, gender, gene) %>%
+  summarise(matched_sample_count = n()) %>%
+  ungroup()
+
+# Filter out Cancer types with fewer than 3 matched samples.
+### Note: using 6 because the code is counting each sample, i.e if case was 1 Solid Tissue Normal and 1 matching respective Primary Tumor, this counted as 2, when in reality this should only be counted as 1 pair). ###  
+filtered_cancer_data <- normal_primary_long_all_sex_genes %>%
+  inner_join(matched_counts %>% filter(matched_sample_count >= 6), by = c("Cancer.Name", "gender", "gene"))
+
+# Define thresholds to include in Violin plots 
+### High threshold
+expressed <- log10(1 + 10)
+
+### Intermediate threshold
+intermediate <- log10(1 + 1)
+
+# Dummy data for threshold lines to include in the legend
+dummy_data <- data.frame(sample_type = c("Solid Tissue Normal", "Primary Tumor"),
+                         y = c(expressed, intermediate),
+                         threshold = c("High", "Intermediate"))
+
+# Function to create violin plots for each gene and gender, faceted by Cancer.Name, and add p-values
+create_gender_specific_violin_plot <- function(data, gene_name, gender_filter) {
+  # Filter data for the specific gene and gender
+  data_filtered <- data %>%
+    filter(gene == gene_name, gender == gender_filter)
+  
+  # Calculate sample counts for each sample_type
+  sample_counts <- data_filtered %>%
+    group_by(Cancer.Name, sample_type, gender, gene) %>%
+    summarize(n = n())
+  
+  # Calculate p-values comparing Solid Tissue Normal to Primary Tumor
+  p_values <- data_filtered %>%
+    group_by(Cancer.Name, sample_type, gender, gene) %>%
+    summarise(p_value = wilcox.test(expression_level ~ sample_type, data = .)$p.value)
+  
+  # Create the violin plot with connecting lines, threshold lines, and p-values
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Solid Tissue Normal", "Primary Tumor")), 
+             y = log10(1 + expression_level),  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots
+    ylim(-0.5, 4) +  # Set y-axis limits
+    geom_jitter(width = 0.1, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Connecting lines
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red") +  # High threshold line
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue") +  # Intermediate threshold line
+    geom_line(data = dummy_data, aes(y = y, color = threshold), linetype = "dashed", size = 0.5) +  # Dummy lines for legend
+    geom_text(data = sample_counts, aes(x = sample_type, y = 3, label = paste0("n = ", n)), 
+              vjust = -0.5, size = 2, color = "black") +  # Add sample counts as labels
+    geom_signif(comparisons = list(c("Solid Tissue Normal", "Primary Tumor")), 
+                map_signif_level = FALSE, test = "wilcox.test", textsize = 1.5) +  # Add p-values
+    scale_fill_manual(values = c("Solid Tissue Normal" = "skyblue", "Primary Tumor" = "coral")) +
+    scale_color_manual(values = c("High" = "red", "Intermediate" = "blue"), 
+                       name = "Thresholds",
+                       labels = c("Expressed", "Intermediate")) +
+    labs(title = paste(gene_name, "Expression in", gender_filter, "Samples"),
+         x = "Sample Type",
+         y = "Expression Level (log10(1 + TPM))") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+          axis.text.y = element_text(size = 4),  # Adjust y-axis font size for readability
+          strip.text.x = element_text(size = 7),  # Font size for facet labels
+          legend.text = element_text(size = 7),  # Adjust the size for legend text
+          legend.title = element_text(size = 8),  # Adjust the size for legend title
+          strip.background = element_blank()) +  # Remove facet background
+    facet_wrap(~Cancer.Name, ncol = 4, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Facet by Cancer.Name
+    guides(fill = guide_legend(override.aes = list(linetype = "blank")),  # Combine fill and color legends
+           color = guide_legend(override.aes = list(linetype = "dashed")))  # Add dashed line for thresholds
+}
+
+# Generate and print violin plots for each gene and gender separately
+lapply(c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"), function(gene) {
+  # Plot for FEMALE samples
+  violin_plot_female_filtered <- create_gender_specific_violin_plot(filtered_cancer_data, gene, "FEMALE")
+  print(violin_plot_female_filtered)
+  
+  # # Save the violin plot for FEMALE (optional)
+  # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_FEMALE_all_cancers_filtered.png"), plot = violin_plot_female_filtered, dpi = 300)
+  
+  # Plot for MALE samples
+  violin_plot_male_filtered <- create_gender_specific_violin_plot(filtered_cancer_data, gene, "MALE")
+  print(violin_plot_male_filtered)
+  
+  # # Save the violin plot for MALE (optional)
+  # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_MALE_all_cancers_filtered.png"), plot = violin_plot_male_filtered, dpi = 300)
+})
+```
+
+
+
+## Same code as above, but filtering violin plots that have p-values of <=0.05
+```{r}
+create_gender_specific_violin_plot <- function(data, gene_name, gender_filter) {
+  # Filter data for the specific gene and gender
+  data_filtered <- data %>%
+    filter(gene == gene_name, gender == gender_filter)
+
+  # Check if the filtered data is empty
+  if (nrow(data_filtered) == 0) {
+    message(paste("No data available for gene:", gene_name, "and gender:", gender_filter))
+    return(NULL)  # Exit the function if there's no data
+  }
+  
+  # Calculate sample counts for each sample_type
+  sample_counts <- data_filtered %>%
+    group_by(Cancer.Name, sample_type, gender, gene) %>%
+    summarize(n = n(), .groups = 'drop')  # Added .groups = 'drop'
+
+  # Calculate p-values comparing Solid Tissue Normal to Primary Tumor
+  p_values <- data_filtered %>%
+    group_by(Cancer.Name, sample_type, gender, gene) %>%
+    summarise(p_value = wilcox.test(expression_level ~ sample_type, data = .)$p.value, .groups = 'drop')  # Added .groups = 'drop'
+  
+  # Filter p-values to keep only those <= 0.05
+  significant_p_values <- p_values %>%
+    filter(p_value <= 0.05)
+
+  # Check if there are significant p-values to plot
+  if (nrow(significant_p_values) == 0) {
+    message(paste("No significant p-values for gene:", gene_name, "and gender:", gender_filter))
+    return(NULL)  # Exit the function if no significant p-values
+  }
+  
+  # Create the violin plot with connecting lines, threshold lines, and p-values
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Solid Tissue Normal", "Primary Tumor")), 
+             y = log10(1 + expression_level),  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots
+    ylim(-0.5, 4) +  # Set y-axis limits
+    geom_jitter(width = 0.1, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Connecting lines
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red") +  # High threshold line
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue") +  # Intermediate threshold line
+    geom_line(data = dummy_data, aes(y = y, color = threshold), linetype = "dashed", size = 0.5) +  # Dummy lines for legend
+    geom_text(data = sample_counts, aes(x = sample_type, y = 3, label = paste0("n = ", n)), 
+              vjust = -0.5, size = 2, color = "black") +  # Add sample counts as labels
+    # Use significant p-values for geom_signif
+    geom_signif(data = significant_p_values,
+                 comparisons = list(c("Solid Tissue Normal", "Primary Tumor")), 
+                 aes(y_position = max(log10(1 + expression_level), na.rm = TRUE) + 0.2,
+                     annotations = ifelse(p_value <= 0.05, paste0("p = ", format(p_value, digits = 2)), NA)),  # Add annotations
+                 map_signif_level = FALSE, test = "wilcox.test", textsize = 1.5, manual = TRUE) +  # Add p-values
+    scale_fill_manual(values = c("Solid Tissue Normal" = "skyblue", "Primary Tumor" = "coral")) +
+    scale_color_manual(values = c("High" = "red", "Intermediate" = "blue"), 
+                       name = "Thresholds",
+                       labels = c("Expressed", "Intermediate")) +
+    labs(title = paste(gene_name, "Expression in", gender_filter, "Samples"),
+         x = "Sample Type",
+         y = "Expression Level (log10(1 + TPM))") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+          axis.text.y = element_text(size = 4),  # Adjust y-axis font size for readability
+          strip.text.x = element_text(size = 7),  # Font size for facet labels
+          legend.text = element_text(size = 7),  # Adjust the size for legend text
+          legend.title = element_text(size = 8),  # Adjust the size for legend title
+          strip.background = element_blank()) +  # Remove facet background
+    facet_wrap(~Cancer.Name, ncol = 4, scales = "free_y", labeller = label_wrap_gen(width = 20)) +  # Facet by Cancer.Name
+    guides(fill = guide_legend(override.aes = list(linetype = "blank")),  # Combine fill and color legends
+           color = guide_legend(override.aes = list(linetype = "dashed")))  # Add dashed line for thresholds
+}
+
+
+# Generate and print violin plots for each gene and gender separately
+lapply(c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"), function(gene) {
+  # Plot for FEMALE samples
+  violin_plot_female_filtered_sig <- create_gender_specific_violin_plot(filtered_cancer_data, gene, "FEMALE")
+  
+  if (!is.null(violin_plot_female_filtered_sig)) {
+    print(violin_plot_female_filtered_sig)
+    # # Save the violin plot for FEMALE (optional)
+    # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_FEMALE_all_cancers_filtered.png"), plot = violin_plot_female_filtered, dpi = 300)
+  }
+  
+  # Plot for MALE samples
+  violin_plot_male_filtered_sig <- create_gender_specific_violin_plot(filtered_cancer_data, gene, "MALE")
+  
+  if (!is.null(violin_plot_male_filtered_sig)) {
+    print(violin_plot_male_filtered_sig)
+    # # Save the violin plot for MALE (optional)
+    # ggsave(paste0("ViolinPlot_NormalvTumor", gene, "_MALE_all_cancers_filtered.png"), plot = violin_plot_male_filtered, dpi = 300)
+  }
+})
+```
+
+
+## Same code as above, but filtering violin plots that have p-values of >0.05
+```{r}
+
+```
+
+
+
+
+# Take the difference of Primary Tumor and respective Solid Tissue Normal
+# Adding category to dataframe to depict if sample changed from Solid Tissue Normal to respective Primary Tumor based on Gene_expression_category (not expressed, intermediate, expressed)
+```{r}
+# Filter out cases with multiple 'Primary Tumor' entries
+filtered_data_expression_category <- normal_primary %>%
+  group_by(cases.submitter_id) %>%
+  filter(sum(sample_type == "Primary Tumor") == 1)
+
+# Split the data into two separate dataframes based on 'sample_type'
+normal_data_expression_category <- filtered_data_expression_category %>% filter(sample_type == "Solid Tissue Normal")
+primary_data_expression_category <- filtered_data_expression_category %>% filter(sample_type == "Primary Tumor")
+
+# Ensure that both datasets are aligned by 'cases.submitter_id'
+normal_data_expression_category <- normal_data_expression_category %>% arrange(cases.submitter_id)
+primary_data_expression_category <- primary_data_expression_category %>% arrange(cases.submitter_id)
+
+# Calculate the differences for each gene
+gene_columns_expression_category <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+primary_normal_differences_expression_category <- primary_data_expression_category
+
+primary_normal_differences_expression_category[gene_columns_expression_category] <- primary_data_expression_category[gene_columns_expression_category] - normal_data_expression_category[gene_columns_expression_category]
+
+# Create paired expression category columns
+for (gene in gene_columns_expression_category) {
+  
+  # Create the paired expression category column
+  primary_normal_differences_expression_category[[paste0(gene, "_Paired_expression_category")]] <- 
+    paste(normal_data_expression_category[[paste0(gene, "_expression_category")]],
+          primary_data_expression_category[[paste0(gene, "_expression_category")]],
+          sep = " to ")
+}
+
+# Retain only the necessary columns and in specific order
+primary_normal_differences_expression_category <- primary_normal_differences_expression_category %>%
+  select(cases.submitter_id, Cancer.Type, Cancer.Name, gender, XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY, ends_with("_Paired_expression_category"))
+```
+
+
+# Integrating coloring of data points in violin plots for data above based on Solid Tissue Normal to respective Priamry Tumor and their combinations of low, intermediate, and high expression categories
+```{r}
+# List of genes to plot
+genes <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Define custom color palette for the paired expression categories
+paired_expression_colors <- c(
+  "not expressed to not expressed" = "darkblue",
+  "not expressed to intermediate" = "royalblue",
+  "not expressed to expressed" = "lightblue",
+  "intermediate to not expressed" = "darkgreen",
+  "intermediate to intermediate" = "green",
+  "intermediate to expressed" = "lightgreen",
+  "expressed to not expressed" = "darkred",
+  "expressed to intermediate" = "red",
+  "expressed to expressed" = "lightcoral"
+)
+
+# Loop through each gene and create a violin plot
+for (gene in genes) {
+  
+  # Filter the data based on the gene and gender
+  if (gene == "XIST") {
+    data_filtered_expression_category <- primary_normal_differences_expression_category %>% filter(gender == "FEMALE")
+  } else {
+    data_filtered_expression_category <- primary_normal_differences_expression_category %>% filter(gender == "MALE")
+  }
+  
+  # Dynamically determine the paired expression category column based on the gene
+  paired_category_column <- paste0(gene, "_Paired_expression_category")
+  
+  # Create the violin plot
+  violin_primary_normal_expression_category <- ggplot(data = data_filtered_expression_category, aes(x = Cancer.Name, y = .data[[gene]], fill = gender)) +
+    geom_violin(trim = FALSE, position = position_dodge(width = 0.8), fill = NA) +
+    geom_jitter(aes(color = .data[[paired_category_column]]), size = 0.75, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.2)) +
+    scale_color_manual(values = paired_expression_colors) +
+    labs(title = paste("Primary Tumor vs Solid Tissue Normal Differences for", gene)) +
+    ylab(paste(gene, "Expression")) +
+    xlab("Cancer Name") +
+    theme_light() +
+    theme(axis.text.x = element_text(angle = 65, hjust = 1, size = 5),  # Rotate x-axis labels for better readability
+          legend.text = element_text(size = 5),  # Lower the font size of the legend text
+          legend.title = element_text(size = 7))  # Adjust the font size of the legend title
+  
+  # Adjust the legend position to ensure consistent formatting
+  violin_primary_normal_expression_category <- violin_primary_normal_expression_category +
+    guides(color = guide_legend(order = 1, title.position = "top", title.hjust = 0.5),  # `_Paired_expression_category` legend on top right
+           fill = guide_legend(order = 2, title.hjust = 0.5))  # `gender` legend below `_Paired_expression_category`
+  
+  
+  # Print the plot
+  print(violin_primary_normal_expression_category)
+  
+  # Save the plot if needed
+  # ggsave(filename = paste0("Expression_category_actual_violin_plot_", gene, ".png"), plot = violin_primary_normal_expression_category, width = 10, height = 8, dpi = 300)
+}
+```
+
+
+## Same code as above, but changing color scheme
+```{r}
+# List of genes to plot
+genes <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Define custom color palette for the paired expression categories
+paired_expression_colors <- c(
+  "not expressed to not expressed" = "lightblue",
+  "not expressed to intermediate" = "darkblue",
+  "not expressed to expressed" = "darkblue",
+  "intermediate to not expressed" = "darkred",
+  "intermediate to intermediate" = "lightcoral",
+  "intermediate to expressed" = "lightcoral",
+  "expressed to not expressed" = "darkred",
+  "expressed to intermediate" = "lightcoral",
+  "expressed to expressed" = "lightcoral"
+)
+
+# Loop through each gene and create a violin plot
+for (gene in genes) {
+  
+  # Filter the data based on the gene and gender
+  if (gene == "XIST") {
+    data_filtered_expression_category <- primary_normal_differences_expression_category %>% filter(gender == "FEMALE")
+  } else {
+    data_filtered_expression_category <- primary_normal_differences_expression_category %>% filter(gender == "MALE")
+  }
+  
+  # Dynamically determine the paired expression category column based on the gene
+  paired_category_column <- paste0(gene, "_Paired_expression_category")
+  
+  # Create the violin plot
+  violin_primary_normal_expression_category <- ggplot(data = data_filtered_expression_category, aes(x = Cancer.Name, y = .data[[gene]], fill = gender)) +
+    geom_violin(trim = FALSE, position = position_dodge(width = 0.8), fill = NA) +
+    geom_jitter(aes(color = .data[[paired_category_column]]), size = 0.75, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.2)) +
+    scale_color_manual(values = paired_expression_colors) +
+    labs(title = paste("Primary Tumor vs Solid Tissue Normal Differences for", gene)) +
+    ylab(paste(gene, "Expression")) +
+    xlab("Cancer Name") +
+    theme_light() +
+    theme(axis.text.x = element_text(angle = 65, hjust = 1, size = 5),  # Rotate x-axis labels for better readability
+          legend.text = element_text(size = 5),  # Lower the font size of the legend text
+          legend.title = element_text(size = 7))  # Adjust the font size of the legend title
+  
+  # Adjust the legend position to ensure consistent formatting
+  violin_primary_normal_expression_category <- violin_primary_normal_expression_category +
+    guides(color = guide_legend(order = 1, title.position = "top", title.hjust = 0.5),  # `_Paired_expression_category` legend on top right
+           fill = guide_legend(order = 2, title.hjust = 0.5))  # `gender` legend below `_Paired_expression_category`
+  
+  
+  # Print the plot
+  print(violin_primary_normal_expression_category)
+  
+  # Save the plot if needed
+  # ggsave(filename = paste0("Expression_category_actual_violin_plot_", gene, ".png"), plot = violin_primary_normal_expression_category, width = 10, height = 8, dpi = 300)
+}
+```
+
+
+```{r}
+# List of genes to plot
+gene <- c("XIST")
+
+# Define custom color palette for the paired expression categories
+paired_expression_colors <- c(
+  "not expressed to not expressed" = "lightblue",
+  "not expressed to intermediate" = "darkblue",
+  "not expressed to expressed" = "darkblue",
+  "intermediate to not expressed" = "darkred",
+  "intermediate to intermediate" = "lightcoral",
+  "intermediate to expressed" = "lightcoral",
+  "expressed to not expressed" = "darkred",
+  "expressed to intermediate" = "lightcoral",
+  "expressed to expressed" = "lightcoral"
+)
+
+# Loop through each gene and create a violin plot
+for (gene in gene) {
+  
+  # Filter the data based on the gene and gender
+  if (gene == "XIST") {
+    data_filtered_expression_category <- primary_normal_differences_expression_category %>% filter(gender == "MALE")
+  }
+  
+  # Dynamically determine the paired expression category column based on the gene
+  paired_category_column <- paste0(gene, "_Paired_expression_category")
+  
+  # Create the violin plot
+  violin_primary_normal_expression_category <- ggplot(data = data_filtered_expression_category, aes(x = Cancer.Name, y = .data[[gene]], fill = gender)) +
+    geom_violin(trim = FALSE, position = position_dodge(width = 0.8), fill = NA) +
+    geom_jitter(aes(color = .data[[paired_category_column]]), size = 0.75, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.2)) +
+    scale_color_manual(values = paired_expression_colors) +
+    labs(title = paste("Primary Tumor vs Solid Tissue Normal Differences for", gene)) +
+    ylab(paste(gene, "Expression")) +
+    xlab("Cancer Name") +
+    theme_light() +
+    theme(axis.text.x = element_text(angle = 65, hjust = 1, size = 5),  # Rotate x-axis labels for better readability
+          legend.text = element_text(size = 5),  # Lower the font size of the legend text
+          legend.title = element_text(size = 7))  # Adjust the font size of the legend title
+  
+  # Adjust the legend position to ensure consistent formatting
+  violin_primary_normal_expression_category <- violin_primary_normal_expression_category +
+    guides(color = guide_legend(order = 1, title.position = "top", title.hjust = 0.5),  # `_Paired_expression_category` legend on top right
+           fill = guide_legend(order = 2, title.hjust = 0.5))  # `gender` legend below `_Paired_expression_category`
+  
+  
+  # Print the plot
+  print(violin_primary_normal_expression_category)
+  
+#   # Save the plot if needed
+#   ggsave(filename = paste0("Expression_category_actual_violin_plot_MALES_", gene, ".png"), plot = violin_primary_normal_expression_category, width = 10, height = 8, dpi = 300)
+# }
+```
