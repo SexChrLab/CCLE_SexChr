@@ -13,6 +13,10 @@ output: html_document
 knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
 ```
 
+### Note: Below is an example of extracting one of the cancer types in TCGA. 
+### My approach was using the code below and extracting one cancer type at a time.
+### The example provided below is for 'LIHC', you can replace 'LIHC' with the cancer type's appreviation
+
 
 # Load required packages
 ```{r}
