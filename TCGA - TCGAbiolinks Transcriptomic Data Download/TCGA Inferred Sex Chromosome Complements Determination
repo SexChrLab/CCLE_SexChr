@@ -1,0 +1,1084 @@
+---
+title: "TCGA Inferred Sex Chromosome Complements Determination"
+author: "Robert Phavong"
+date: "2024-09-13"
+output: html_document
+---
+
+
+### This includes how I inferred sex chromosome complements (updated to >= 2 Y chromosome genes to call for 'Y' complements)
+### Pie Charts of distributions of sex chomosome complements between FEMALE's and MALE's (Conservative and Inclusive Calls)
+### Summary tables of distributions of sex chomosome complements between FEMALE's and MALE's (Conservative and Inclusive Calls)
+### Heatmap following Mariah's approach for CCLE and GTEx
+
+## Set options for printing reports
+```{r Printoptions}
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+## Set options to prevent plots from being cut off when printing report
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=6)
+```
+
+
+# Load required libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(viridis)  # for the viridis color palette (colorblind-friendly!)
+library(ggrepel) # used to adjust labels in pie charts 
+```
+
+
+# Set working directory
+```{r}
+# Specify the directory
+working_path_complements <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Inferred_Sex_Chromosome_Complements_Determination/"
+
+setwd(working_path_complements)
+
+working_path_complements <- "/home/rphavong/BIO_593_AppliedProject_CCLE/TCGA_Inferred_Sex_Chromosome_Complements_Determination/"
+```
+
+
+# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes)
+```{r}
+all_cancers_sex_genes_tpm <- read.csv("genes_tpm_all_names.csv", header = TRUE)
+```
+
+
+
+# Based on the thresholds determined for each sex chromosome gene of interest add expressed, intermediate, and not expressed for each case and gene
+```{r}
+# Note to self, Gene order: "XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"
+
+# Make sure genes of interest are numeric
+columns_to_convert <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Convert sex gene columns to numeric
+genes_tpm_all_filtered <- all_cancers_sex_genes_tpm %>%
+  mutate_at(vars(one_of(columns_to_convert)), as.numeric)
+
+# Remove rows with NAs
+genes_tpm_all_filtered <- na.omit(genes_tpm_all_filtered[, c("cases", "cases.submitter_id", "Cancer.Type", "Cancer.Name", "sample_type", "gender", "XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")])
+
+# Add gene expression category for each gene: expressed, intermediate, or not expressed
+genes_tpm_all_categories <- genes_tpm_all_filtered %>%
+  mutate(
+    XIST_expression_category = case_when(
+      XIST >= 10 ~ "expressed",
+      XIST > 1 & XIST < 10 ~ "intermediate",
+      XIST <= 1 ~ "not expressed"
+    ),
+    RPS4Y1_expression_category = case_when(
+      RPS4Y1 >= 10 ~ "expressed",
+      RPS4Y1 > 1 & RPS4Y1 < 10 ~ "intermediate",
+      RPS4Y1 <= 1 ~ "not expressed"
+    ),
+    ZFY_expression_category = case_when(
+      ZFY >= 10 ~ "expressed",
+      ZFY > 1 & ZFY < 10 ~ "intermediate",
+      ZFY <= 1 ~ "not expressed"
+    ),
+    USP9Y_expression_category = case_when(
+      USP9Y >= 10 ~ "expressed",
+      USP9Y > 1 & USP9Y < 10 ~ "intermediate",
+      USP9Y <= 1 ~ "not expressed"
+    ),
+    DDX3Y_expression_category = case_when(
+      DDX3Y >= 10 ~ "expressed",
+      DDX3Y > 1 & DDX3Y < 10 ~ "intermediate",
+      DDX3Y <= 1 ~ "not expressed"
+    ),
+    UTY_expression_category = case_when(
+      UTY >= 10 ~ "expressed",
+      UTY > 1 & UTY < 10 ~ "intermediate",
+      UTY <= 1 ~ "not expressed"
+    ),
+    KDM5D_expression_category = case_when(
+      KDM5D >= 10 ~ "expressed",
+      KDM5D > 1 & KDM5D < 10 ~ "intermediate",
+      KDM5D <= 1 ~ "not expressed"
+    ),
+    EIF1AY_expression_category = case_when(
+      EIF1AY >= 10 ~ "expressed",
+      EIF1AY > 1 & EIF1AY < 10 ~ "intermediate",
+      EIF1AY <= 1 ~ "not expressed"
+    )
+  )
+
+# Reorder columns to make sure columns are in order of interest
+genes_tpm_all_categories <- genes_tpm_all_categories %>%
+  select(cases, cases.submitter_id, Cancer.Type, Cancer.Name, sample_type, gender, everything())
+
+
+# # Convert dataframe into CSV file
+# write.csv(counts_genes_tpm_all, file = "counts_genes_tpm_all_categories.csv", row.names = FALSE)
+```
+
+
+# Summarize and take the percentages of MALES that are intermediate or expressed for XIST; and FEMALES that are intermediate or expressed for Y-linked genes
+## MALEs
+```{r}
+# Calculate total number of MALEs
+total_males <- genes_tpm_all_categories %>%
+  filter(gender == "MALE") %>%
+  nrow()
+
+# Summarize XIST for MALEs only
+XIST_male_summary <- genes_tpm_all_categories %>%
+  filter(gender == "MALE") %>%
+  group_by(XIST_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(XIST_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_males) * 100)
+
+XIST_male_summary
+```
+
+## FEMALEs
+```{r}
+# Calculate total number of FEMALEs
+total_females <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  nrow()
+
+# Summarize RPS4Y1 for FEMALEs only
+RPS4Y1_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(RPS4Y1_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(RPS4Y1_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "RPS4Y1") %>% # Add a column for gene name
+  mutate(expression_category = RPS4Y1_expression_category) %>%
+  select(-1)
+
+# Summarize ZFY for FEMALEs only
+ZFY_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(ZFY_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(ZFY_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "ZFY") %>% # Add a column for gene name
+  mutate(expression_category = ZFY_expression_category) %>%
+  select(-1)
+
+# Summarize USP9Y for FEMALEs only
+USP9Y_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(USP9Y_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(USP9Y_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "USP9Y") %>% # Add a column for gene name
+  mutate(expression_category = USP9Y_expression_category) %>%
+  select(-1)
+
+# Summarize DDX3Y for FEMALEs only
+DDX3Y_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(DDX3Y_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(DDX3Y_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "DDX3Y") %>% # Add a column for gene name
+  mutate(expression_category = DDX3Y_expression_category) %>%
+  select(-1)
+
+# Summarize UTY for FEMALEs only
+UTY_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(UTY_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(UTY_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "UTY") %>% # Add a column for gene name
+  mutate(expression_category = UTY_expression_category) %>%
+  select(-1)
+
+# Summarize KDM5D for FEMALEs only
+KDM5D_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(KDM5D_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(KDM5D_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "KDM5D") %>% # Add a column for gene name
+  mutate(expression_category = KDM5D_expression_category) %>%
+  select(-1)
+
+# Summarize EIF1AY for FEMALEs only
+EIF1AY_female_summary_2 <- genes_tpm_all_categories %>%
+  filter(gender == "FEMALE") %>%
+  group_by(EIF1AY_expression_category) %>%
+  summarize(count = n()) %>%
+  filter(EIF1AY_expression_category %in% c('intermediate', 'expressed')) %>%
+  mutate(percentage = (count / total_females) * 100) %>%
+  mutate(gene = "EIF1AY") %>% # Add a column for gene name
+  mutate(expression_category = EIF1AY_expression_category) %>%
+  select(-1)
+
+# Combine all summaries into one data frame
+female_y_genes_summary <- bind_rows(
+  RPS4Y1_female_summary_2,
+  ZFY_female_summary_2,
+  USP9Y_female_summary_2,
+  DDX3Y_female_summary_2,
+  UTY_female_summary_2,
+  KDM5D_female_summary_2,
+  EIF1AY_female_summary_2
+)
+
+# Reorder the columns
+female_y_genes_summary <- female_y_genes_summary[, c('gene', 'expression_category', 'count', 'percentage')]
+
+# View the combined summary
+print(female_y_genes_summary)
+```
+
+
+# Inferring sex chromosome complements
+## Adding inferred sex chromosome complements based on threshold expressions
+```{r}
+# Create a new column based on values in XIST_expression_category for X chromosome complement
+inferred_sex_chromosome_complement <- genes_tpm_all_categories %>%
+  mutate(X_inferred_complement = case_when(
+    XIST_expression_category == "expressed" ~ "X",
+    XIST_expression_category == "intermediate" ~ "intermediate X",
+    XIST_expression_category == "not expressed" ~ "O"))
+```
+
+
+# Since there are multiple Y-Linked genes, will take a count for all cases that show differing expressions, then if at least one Y chromosome gene is expres
+```{r}
+# Define the columns of interest
+Y_category_columns <- c('RPS4Y1_expression_category', 'ZFY_expression_category', 
+                        'USP9Y_expression_category', 'DDX3Y_expression_category', 
+                        'UTY_expression_category', 'KDM5D_expression_category',
+                        'EIF1AY_expression_category')
+
+# Assign values based on the conditions
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(Y_inferred_complement = case_when(
+    rowSums(select(., all_of(Y_category_columns)) == "expressed", na.rm = TRUE) >= 2 ~ "Y", # "Y": Assigned if any of the specified Y_category_columns contains 'expressed', here I modified so that a Y is inferred for >= 2 Y chromosome genes 
+    rowSums(select(., all_of(Y_category_columns)) == "intermediate", na.rm = TRUE) > 0 ~ "intermediate Y", # "intermediate_Y": Assigned if any of the specified columns contains 'intermediate' and there are no 'expressed' values.
+    TRUE ~ "." # ".": Assigned if only 'not expressed' values are present in the specified columns.
+  ))
+
+
+## Create new column with sex chromosome complements (pairs)
+# Create the inferred_sex_chromosome_complements column with a default value 'X'
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = "X")
+
+# Combine X_inferred_complement and Y_inferred_complement values into the new column
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = paste0(
+    inferred_sex_chromosome_complements, 
+    coalesce(X_inferred_complement, ""), 
+    coalesce(Y_inferred_complement, "")
+  ))
+
+# Remove the '.' character from the inferred_sex_chromosome_complements column
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = gsub("\\.", "", inferred_sex_chromosome_complements))
+
+# Remove 'O' from 'XOY' in the inferred_sex_chromosome_complements column, since these are males with normal karyotype
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = if_else(
+    inferred_sex_chromosome_complements == "XOY",
+    gsub("O", "", inferred_sex_chromosome_complements),
+    inferred_sex_chromosome_complements
+  ))
+
+# Remove 'O' from 'XOintermediate Y' in the inferred_sex_chromosome_complements column, since these are males with no second X chromosome complements
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = if_else(
+    inferred_sex_chromosome_complements == "XOintermediate Y",
+    gsub("O", "", inferred_sex_chromosome_complements),
+    inferred_sex_chromosome_complements
+  ))
+
+# Define the transformation logic for adding spaces
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = inferred_sex_chromosome_complements %>%
+           # Add a space after 'X' if followed by 'intermediate'
+           gsub("^X(intermediate)", "X \\1", .) %>%
+           # Add a space after 'XX' if followed by 'intermediate'
+           gsub("^XX(intermediate)", "XX \\1", .) %>%
+           # Add a space after 'XO' if followed by 'intermediate'
+           gsub("^XO(intermediate)", "XO \\1", .) %>%
+           # Add a space between 'Xintermediate X' and 'Y'
+           gsub("X(intermediate [XY])Y", "X \\1 Y", .) %>%
+           # Add a space between two 'intermediate ' terms
+           gsub("(intermediate [XY])(intermediate [XY])", "\\1 \\2", .))
+
+# Add a space in 'X intermediate XY' to make it 'X intermediate X Y'
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inferred_sex_chromosome_complements = str_replace(inferred_sex_chromosome_complements, "X intermediate XY", "X intermediate X Y"))
+
+# # Create CSV file of inferred_sex_chromosome_complement
+# write.csv(inferred_sex_chromosome_complement, file = "inferred_sex_chromosome_complement.csv", row.names = FALSE)
+
+# Summarize the different inferred sex chromosome complements by cancer type and gender.
+summary_inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  group_by(Cancer.Name, sample_type, gender, inferred_sex_chromosome_complements) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# # Create CSV file of summary_inferred_sex_chromosome_complement
+# write.csv(summary_inferred_sex_chromosome_complement, file = "summary_inferred_sex_chromosome_complement.csv", row.names = FALSE)
+
+# Summary excluding 'sample_type'
+summary_inferred_sex_chromosome_complement_no_sample_type <- inferred_sex_chromosome_complement %>%
+  group_by(Cancer.Name, gender, inferred_sex_chromosome_complements) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# # Create CSV file of summary_inferred_sex_chromosome_complement_no_sample_type
+# write.csv(ssummary_inferred_sex_chromosome_complement_no_sample_type, file = "summary_inferred_sex_chromosome_complement_no_sample_type.csv", row.names = FALSE)
+
+# See what are the unique inferred sex chromosome complements
+unique(inferred_sex_chromosome_complement$inferred_sex_chromosome_complements)
+```
+
+
+
+## Add Conservative Column in inferred sex chromosome complements
+```{r}
+## Criteria for Conservative Calls for inferred sex chromosome complements
+# XIST not expressed = X0/XaXa
+# XIST intermediate = X0/XaXa
+# XIST expressed = XaXi
+# Additionally, samples that have 'intermediate Y' were not given a Y chromosome complement
+
+# Create the new 'conservative_calls' column
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(conservative_calls = case_when(
+    # For FEMALE samples
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XO") ~ "XO/XaXa",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate X") ~ "XO/XaXa",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate X intermediate Y") ~ "XO/XaXa",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XX" | grepl("XX", inferred_sex_chromosome_complements)) & !grepl("Y", inferred_sex_chromosome_complements) ~ "XaXi",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XXY") ~ "XaXi Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XX intermediate Y") ~ "XaXi",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate Y") ~ "XO/XaXa",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate X Y") ~ "XO/XaXa Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XY") ~ "XO/XaXa Y",
+    
+
+    # For MALE samples
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XO") ~ "X",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate X") ~ "X",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate X Y") ~ "XY",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XX" | grepl("XX", inferred_sex_chromosome_complements)) & !grepl("Y", inferred_sex_chromosome_complements) ~ "XaXi",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XXY") ~ "XaXi Y",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XX intermediate Y") ~ "XaXi",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate Y") ~ "X",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate X intermediate Y") ~ "X",
+    
+    # Default case for other values
+    TRUE ~ inferred_sex_chromosome_complements
+  ))
+
+## Now checking for unique values for conservative_calls column
+unique(inferred_sex_chromosome_complement$conservative_calls)
+```
+
+
+## Add Inclusive Column in inferred sex chromosome complements
+```{r}
+## Criteria for Inclusive Calls for inferred sex chromosome complements
+# XIST not expressed = X0/XaXa
+# XIST intermediate = XaXi
+# XIST expressed = XaXi
+# Additionally, samples that have 'intermediate Y' were given a Y chromosome complement
+
+# Create the new 'inclusive_calls' column
+inferred_sex_chromosome_complement <- inferred_sex_chromosome_complement %>%
+  mutate(inclusive_calls = case_when(
+    # For FEMALE samples
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XO") ~ "XO/XaXa",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate X") ~ "XaXi",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate X intermediate Y") ~ "XaXi Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XX" | grepl("XX", inferred_sex_chromosome_complements)) & !grepl("Y", inferred_sex_chromosome_complements) ~ "XaXi",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XXY") ~ "XaXi Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XX intermediate Y") ~ "XaXi Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate Y") ~ "XO/XaXa Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "X intermediate X Y") ~ "XaXi Y",
+    gender == "FEMALE" & (inferred_sex_chromosome_complements == "XY") ~ "XO/XaXa Y",
+    
+
+    # For MALE samples
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XO") ~ "X",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate X") ~ "XaXi",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate X Y") ~ "XaXi Y",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XX" | grepl("XX", inferred_sex_chromosome_complements)) & !grepl("Y", inferred_sex_chromosome_complements) ~ "XaXi",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XXY") ~ "XaXi Y",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "XX intermediate Y") ~ "XaXi Y",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate Y") ~ "XY",
+    gender == "MALE" & (inferred_sex_chromosome_complements == "X intermediate X intermediate Y") ~ "XaXi Y",
+    
+    # Default case for other values
+    TRUE ~ inferred_sex_chromosome_complements
+  ))
+
+## Now checking for unique values for inclusive_calls column
+unique(inferred_sex_chromosome_complement$inclusive_calls)
+```
+
+
+## Write CSV file for inferred_sex_chromosome_complement dataframe
+```{r}
+# # Create CSV file of inferred_sex_chromosome_complement
+# write.csv(inferred_sex_chromosome_complement, file = "inferred_sex_chromosome_complement.csv", row.names = FALSE)
+```
+
+
+
+## Pie Charts for Conservative Calls
+```{r}
+## FEMALES
+# Filter FEMALE samples and Primary Tumor sample type
+female_data_pie_conservative <- inferred_sex_chromosome_complement %>%
+  filter(gender == "FEMALE", sample_type == "Primary Tumor")
+
+# Calculate total number of FEMALEs
+total_females_pie_conservative <- female_data_pie_conservative %>%
+  filter(gender == "FEMALE") %>%
+  nrow()
+
+# Summarize the count of each 'conservative_calls' category within FEMALE samples
+female_counts_pie_conservative <- female_data_pie_conservative %>%
+  group_by(conservative_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_females_pie_conservative) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_females <- c(
+  "XaXi" = "lightgreen",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(female_counts_pie_conservative, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Inferred Sex Chromosome Complements Distribution in FEMALE Samples\n(Conservative Calls)") +
+  scale_fill_manual(values = color_scheme_females) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+female_counts_pie_conservative <- female_counts_pie_conservative %>%
+  mutate(
+    conservative_calls = factor(conservative_calls, levels = c("XaXi", "XO/XaXa", "XaXi Y", "XO/XaXa Y")),
+    label = case_when(
+      conservative_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      conservative_calls == "XO/XaXa" ~ paste0("No inactivation, XaXa or XaO: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      conservative_calls == "XO/XaXa Y" ~ paste0("No inactivation, XaXa or XaO, Y expressed: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and updated legend names
+conservative_females_piechart <- ggplot(female_counts_pie_conservative, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution \nin FEMALE Samples (Conservative Calls)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_females,  # Custom color scheme
+    labels = c(
+      "XaXi" = "XIST expressed and chrY not expressed",
+      "XO/XaXa" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XO/XaXa Y" = "XIST not expressed and chrY expressed"
+    )
+  ) +  
+  
+  # Use geom_label_repel for improved label positioning
+  geom_label_repel(
+    aes(label = label),
+    size = 2.5, show.legend = FALSE,
+    nudge_x = 0.5, direction = "y",  # Adjust nudge to place labels outside
+    force = 1,   # Force of repelling
+    segment.size = 0,  # Remove connecting lines
+    segment.color = NA,  # Ensure no line segments
+    data = subset(female_counts_pie_conservative, conservative_calls %in% c("XaXi Y", "XO/XaXa Y"))  # Move labels for these categories outside
+  ) +
+  
+  # Regular text for the other categories
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.5),
+    size = 2.5,
+    data = subset(female_counts_pie_conservative, !conservative_calls %in% c("XaXi Y", "XO/XaXa Y"))
+  )
+
+conservative_females_piechart
+
+# ## Save pie chart
+# ggsave(filename = "conservative_females_piechart.png", plot = conservative_females_piechart, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "conservative_females_piechart.pdf", plot = conservative_females_piechart)
+```
+
+
+
+
+```{r}
+## MALES
+# Filter MALE samples
+male_data_pie_conservative <- inferred_sex_chromosome_complement %>%
+  filter(gender == "MALE", sample_type == "Primary Tumor")
+
+# Calculate total number of MALEs
+total_males_pie_conservative <- male_data_pie_conservative %>%
+  filter(gender == "MALE") %>%
+  nrow()
+
+# Summarize the count of each 'conservative_calls' category within MALE samples
+male_counts_pie_conservative <- male_data_pie_conservative %>%
+  group_by(conservative_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_males_pie_conservative) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_males <- c(
+  "XaXi" = "grey",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(male_counts_pie_conservative, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Inferred Sex Chromosome Complements Distribution in MALE Samples\n(Conservative Calls)") +
+  scale_fill_manual(values = color_scheme_males) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+male_counts_pie_conservative <- male_counts_pie_conservative %>%
+  mutate(
+    conservative_calls = factor(conservative_calls, levels = c("XY", "X", "XaXi Y", "XaXi")),
+    label = case_when(
+      conservative_calls == "XY" ~ paste0("XY: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      conservative_calls == "X" ~ paste0("Loss of Y or downregulation: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and label formatting
+conservative_males_piechart <- ggplot(male_counts_pie_conservative, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution \nin MALE Samples (Conservative Calls)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_males,  # Custom color scheme
+    labels = c(
+      "XY" = "XIST not expressed and chrY expressed",
+      "X" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XaXi" = "XIST expressed and chrY not expressed"
+    )
+  ) +
+
+  # Regular text for "XY" without repelling
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.80),
+    size = 3,
+    data = subset(male_counts_pie_conservative, conservative_calls == "XY")
+  ) +
+  
+  # Use geom_label_repel for the other labels to adjust their positioning
+  geom_label_repel(
+    aes(label = label),
+    size = 2.5, show.legend = FALSE,
+    #position = position_stack(vjust = 0.5),
+    nudge_x = 0.05,  # Adjust to shift left or right
+    nudge_y = 1.5,  # Adjust to shift vertically
+    direction = "y",
+    force = 2,  # Increase force for more separation
+    segment.size = 0,  # Remove connecting lines
+    segment.color = NA,  # Ensure no line segments
+    data = subset(male_counts_pie_conservative, conservative_calls %in% c("X", "XaXi", "XaXi Y"))
+  )
+
+conservative_males_piechart
+
+# ## Save pie chart
+# ggsave(filename = "conservative_males_piechart.png", plot = conservative_males_piechart, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "conservative_males_piechart.pdf", plot = conservative_males_piechart)
+```
+
+
+
+
+## Pie Charts for Inclusive Calls
+```{r}
+## FEMALES
+# Filter FEMALE samples
+female_data_pie_inclusive <- inferred_sex_chromosome_complement %>%
+  filter(gender == "FEMALE", sample_type == "Primary Tumor")
+
+# Calculate total number of FEMALEs
+total_females_pie_inclusive <- female_data_pie_inclusive %>%
+  filter(gender == "FEMALE") %>%
+  nrow()
+
+# Summarize the count of each 'inclusive_calls' category within FEMALE samples
+female_counts_pie_inclusive <- female_data_pie_inclusive %>%
+  group_by(inclusive_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_females_pie_inclusive) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_females <- c(
+  "XaXi" = "lightgreen",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(female_counts_pie_inclusive, aes(x = "", y = count, fill = inclusive_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Inferred Sex Chromosome Complements Distribution in FEMALE Samples\n(Inclusive Calls)") +
+  scale_fill_manual(values = color_scheme_females) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+female_counts_pie_inclusive <- female_counts_pie_inclusive %>%
+  mutate(
+    inclusive_calls = factor(inclusive_calls, levels = c("XaXi", "XO/XaXa", "XaXi Y", "XO/XaXa Y")),
+    label = case_when(
+      inclusive_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      inclusive_calls == "XO/XaXa" ~ paste0("No inactivation, XaXa or XaO: ", round(percentage, 2), "%"),
+      inclusive_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      inclusive_calls == "XO/XaXa Y" ~ paste0("No inactivation, XaXa or XaO, Y expressed: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and label formatting
+inclusive_females_piechart <- ggplot(female_counts_pie_inclusive, aes(x = "", y = count, fill = inclusive_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution \nin FEMALE Samples (Inclusive Calls)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_females,  # Custom color scheme
+    labels = c(
+      "XaXi" = "XIST expressed and chrY not expressed",
+      "XO/XaXa" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XO/XaXa Y" = "XIST not expressed and chrY expressed"
+    )
+  ) +
+  
+  # Use geom_label_repel for improved label positioning
+  geom_label_repel(  # Use geom_label_repel for improved label positioning
+    aes(label = label),
+    size = 2.5, show.legend = FALSE,
+    nudge_x = 0.5, direction = "y",  # Adjust nudge to place labels outside
+    force = 1,   # Force of repelling
+    data = subset(female_counts_pie_inclusive, inclusive_calls %in% c("XO/XaXa", "XaXi Y", "XO/XaXa Y"))  # Move labels for these categories outside
+  ) +
+  
+  geom_text(  # Regular text for the other categories
+    aes(label = label),
+    position = position_stack(vjust = 0.80),
+    size = 3,
+    data = subset(female_counts_pie_inclusive, !inclusive_calls %in% c("XO/XaXa", "XaXi Y", "XO/XaXa Y"))
+  )
+
+inclusive_females_piechart
+
+# ## Save pie chart
+# ggsave(filename = "inclusive_females_piechart.png", plot = inclusive_females_piechart, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "inclusive_females_piechart.pdf", plot = inclusive_females_piechart)
+```
+
+
+
+```{r}
+## MALES
+# Filter MALE samples
+male_data_pie_inclusive <- inferred_sex_chromosome_complement %>%
+  filter(gender == "MALE", sample_type == "Primary Tumor")
+
+# Calculate total number of MALEs
+total_males_pie_inclusive <- male_data_pie_inclusive %>%
+  filter(gender == "MALE") %>%
+  nrow()
+
+# Summarize the count of each 'inclusive_calls' category within MALE samples
+male_counts_pie_inclusive <- male_data_pie_inclusive %>%
+  group_by(inclusive_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_males_pie_inclusive) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_males <- c(
+  "XaXi" = "grey",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(male_counts_pie_inclusive, aes(x = "", y = count, fill = inclusive_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Inferred Sex Chromosome Complements Distribution in MALE Samples\n(Inclusive Calls)") +
+  scale_fill_manual(values = color_scheme_males) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+male_counts_pie_inclusive <- male_counts_pie_inclusive %>%
+  mutate(
+    inclusive_calls = factor(inclusive_calls, levels = c("XY", "X", "XaXi Y", "XaXi")),
+    label = case_when(
+      inclusive_calls == "XY" ~ paste0("XY: ", round(percentage, 2), "%"),
+      inclusive_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      inclusive_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      inclusive_calls == "X" ~ paste0("Loss of Y or downregulation: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and label formatting
+inclusive_males_piechart <- ggplot(male_counts_pie_inclusive, aes(x = "", y = count, fill = inclusive_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution \nin MALE Samples (Inclusive Calls)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_males,  # Custom color scheme
+    labels = c(
+      "XY" = "XIST not expressed and chrY expressed",
+      "X" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XaXi" = "XIST expressed and chrY not expressed"
+    )
+  ) +
+
+  # Regular text for "XY" without repelling
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.60),
+    size = 3,
+    data = subset(male_counts_pie_inclusive, inclusive_calls == "XY")
+  ) +
+  
+  # Use geom_label_repel for the other labels to adjust their positioning
+  geom_label_repel(
+    aes(label = label),
+    size = 2.5, show.legend = FALSE,
+    position = position_stack(vjust = 0.75),
+    #nudge_x = 0.005,  # Adjust to shift left or right
+    #nudge_y = 0,  # Adjust to shift vertically
+    direction = "y",
+    force = 1,  # Increase force for more separation
+    #segment.size = 0,  # Remove connecting lines
+    #segment.color = NA,  # Ensure no line segments
+    data = subset(male_counts_pie_inclusive, inclusive_calls %in% c("X", "XaXi", "XaXi Y"))
+  )
+
+inclusive_males_piechart
+
+# ## Save pie chart
+# ggsave(filename = "inclusive_males_piechart.png", plot = inclusive_males_piechart, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "inclusive_males_piechart.pdf", plot = inclusive_males_piechart)
+```
+
+
+
+## Summarizing the Conservative and Inclusive counts for each inferred sex chromosome combination by gender
+### Conservative Calls
+```{r}
+# Filter for 'Primary Tumor' sample types only
+primary_tumor_data <- inferred_sex_chromosome_complement %>%
+  filter(sample_type == "Primary Tumor")
+
+# For FEMALE samples
+female_summary_conservative <- primary_tumor_data %>%
+  filter(gender == "FEMALE") %>%
+  group_by(conservative_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    conservative_calls == "XaXi" ~ "XIST expressed and Y not expressed",
+    conservative_calls == "XO/XaXa" ~ "XIST not expressed and Y not expressed",
+    conservative_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    conservative_calls == "XO/XaXa Y" ~ "XIST not expressed and Y expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, conservative_calls, count, Percentage)
+
+# # Write FEMALE summary to CSV
+# write.csv(female_summary_conservative, "female_summary_conservative.csv", row.names = FALSE)
+
+
+# For MALE samples
+male_summary_conservative <- primary_tumor_data %>%
+  filter(gender == "MALE") %>%
+  group_by(conservative_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    conservative_calls == "XY" ~ "XIST not expressed and Y expressed",
+    conservative_calls == "X" ~ "XIST not expressed and Y not expressed",
+    conservative_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    conservative_calls == "XaXi" ~ "XIST expressed and Y not expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, conservative_calls, count, Percentage)
+
+# # Write MALE summary to CSV
+# write.csv(male_summary_conservative, "male_summary_conservative.csv", row.names = FALSE)
+```
+
+
+
+### Inclusive Calls
+```{r}
+# Filter for 'Primary Tumor' sample types only
+primary_tumor_data <- inferred_sex_chromosome_complement %>%
+  filter(sample_type == "Primary Tumor")
+
+# For FEMALE samples
+female_summary_inclusive <- primary_tumor_data %>%
+  filter(gender == "FEMALE") %>%
+  group_by(inclusive_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    inclusive_calls == "XaXi" ~ "XIST expressed and Y not expressed",
+    inclusive_calls == "XO/XaXa" ~ "XIST not expressed and Y not expressed",
+    inclusive_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    inclusive_calls == "XO/XaXa Y" ~ "XIST not expressed and Y expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, inclusive_calls, count, Percentage)
+
+# # Write FEMALE summary to CSV
+# write.csv(female_summary_inclusive, "female_summary_inclusive.csv", row.names = FALSE)
+
+
+
+# For MALE samples
+male_summary_inclusive <- primary_tumor_data %>%
+  filter(gender == "MALE") %>%
+  group_by(inclusive_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    inclusive_calls == "XY" ~ "XIST not expressed and Y expressed",
+    inclusive_calls == "X" ~ "XIST not expressed and Y not expressed",
+    inclusive_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    inclusive_calls == "XaXi" ~ "XIST expressed and Y not expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, inclusive_calls, count, Percentage)
+
+# # Write MALE summary to CSV
+# write.csv(male_summary_inclusive, "male_summary_inclusive.csv", row.names = FALSE)
+```
+
+
+
+## Heatmap 
+#### Integrating the factoring the levels of 'expressed', 'intermediate', and 'not expressed' to better group the samples in heatmap
+```{r}
+# Integrate the ordering of gene samples based on 
+# Order the data by gene expression levels categories
+sex_genes <- inferred_sex_chromosome_complement %>%
+  arrange(across(contains("_expression_category"), 
+                 ~ factor(., levels = c("expressed", 
+                                        "intermediate", 
+                                        "not expression"))))
+
+# Subset the data to include only the columns of interest (gene expressions, gender, and sample_type)
+sex_genes <- sex_genes %>%
+  filter(sample_type == "Primary Tumor") %>%  # Filter for 'Primary Tumor'
+  select(cases, cases.submitter_id, sample_type, gender, XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY)
+
+# Apply log10(1 + gene_expression) transformation to the data
+sex_genes <- sex_genes %>%
+  mutate(across(XIST:EIF1AY, ~ log10(1 + .)))
+
+# Order genes based on the grouping: XIST (X), RPS4Y1, ZFY (Yp), USP9Y, DDX3Y, UTY, KDM5D, EIF1AY (Yq)
+gene_order <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Create a separate dataframe for males and females
+sex_genes_male <- filter(sex_genes, gender == "MALE") %>% select(-gender)
+sex_genes_female <- filter(sex_genes, gender == "FEMALE") %>% select(-gender)
+
+# Reorder columns according to the specific chromosome grouping
+sex_genes_male <- sex_genes_male[, gene_order]
+sex_genes_female <- sex_genes_female[, gene_order]
+
+# Combine the data back together for heatmap
+combined_genes <- rbind(
+  mutate(sex_genes_female, gender = "FEMALE"),
+  mutate(sex_genes_male, gender = "MALE")
+)
+
+# Create unique sample labels by combining gender with row numbers to avoid duplicates
+combined_genes$Sample <- paste(combined_genes$gender, seq_len(nrow(combined_genes)), sep = "_")
+
+# Transpose the data so that genes are rows and samples (genders) are columns
+combined_genes_t <- combined_genes %>%
+  select(-gender) %>%
+  column_to_rownames("Sample") %>%
+  t()
+
+# Create chromosome labels for the genes for gene localization in respective chromosome
+chromosome_labels <- c("X", "Yp", "Yp", "Yq", "Yq", "Yq", "Yq", "Yq")
+
+# Extract gene names (without chromosome labels)
+gene_names <- rownames(combined_genes_t)
+
+# Create a new dataframe with separate Gene and Chromosome columns
+combined_genes_df <- data.frame(
+  Chromosome = chromosome_labels,
+  Gene = gene_names,
+  combined_genes_t
+)
+
+# Load necessary libraries
+library(ComplexHeatmap)
+library(circlize)  # For color functions
+library(grid)
+
+# Prepare the expression matrix (excluding 'Chromosome' and 'Gene' columns)
+expression_matrix <- as.matrix(combined_genes_df[, -c(1, 2)])  # Exclude Chromosome and Gene columns
+rownames(expression_matrix) <- combined_genes_df$Gene  # Set the gene names as row names
+
+# Define the chromosome grouping labels (to appear once per gene)
+chromosome_groups <- factor(combined_genes_df$Chromosome, levels = c("X", "Yp", "Yq"))
+
+# Create row annotations for chromosome groups (one per gene)
+chromosome_annotation <- rowAnnotation(
+  Chromosome = anno_text(combined_genes_df$Chromosome, 
+                         which = "row", rot = 90, just = "center", 
+                         gp = gpar(fontsize = 10))
+)
+
+# Get the indices of FEMALE and MALE samples using grep
+female_indices <- grep("^FEMALE", colnames(expression_matrix))
+male_indices <- grep("^MALE", colnames(expression_matrix))
+
+# Combine FEMALE and MALE indices without reordering
+new_order <- c(female_indices, male_indices)
+
+# Reorder the expression matrix accordingly (but without ordering based on gene expression)
+expression_matrix <- expression_matrix[, new_order]
+
+# Create the column split factor based on gender
+new_column_split <- factor(c(rep("FEMALE", length(female_indices)), 
+                             rep("MALE", length(male_indices))),
+                           levels = c("FEMALE", "MALE"))
+
+# Scaling by row: Min-Max Scaling
+scaled_expression_matrix <- t(apply(expression_matrix, 1, function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}))
+
+# Create the heatmap with custom layer function for individual row colors
+heatmap <- Heatmap(scaled_expression_matrix,
+        name = "Scaled Expression",    
+        col = c("royalblue3", "white", "red"),
+        cluster_rows = FALSE,         # Maintain gene order, no clustering
+        cluster_columns = FALSE,      # Maintain sample order, no clustering
+        row_split = chromosome_groups,  # Group genes by Chromosome
+        column_split = new_column_split,  # Split columns by gender
+        column_gap = unit(1, "mm"),
+        show_row_names = TRUE,        # Display gene names on the left
+        show_column_names = FALSE,
+        row_names_side = "left",      # Move gene names to the left
+        row_title_rot = 90,           # Rotate group labels (X, Yp, Yq) 90 degrees
+        row_title_gp = gpar(fontsize = 12),  # Font size for the chromosome labels
+        row_title = c("X", "Yp", "Yq"),      # Labels for chromosome groups
+        column_title = c("FEMALE", "MALE"), # Set titles for gender columns
+        column_title_side = "bottom",   # Place the titles at the bottom for Gender
+)
+
+# Print the Heatmap
+draw(heatmap)
+# dev.off()  # Close the device after drawing the heatmap
+
+# # Save the heatmap as a PNG
+# png("Heatmap_TCGA_All_Cancers_Sex_Genes.png", width = 1200, height = 800, res = 150)  # Adjust resolution as needed
+# draw(heatmap)
+# dev.off()  # Close the device after drawing the heatmap
+# 
+# # Save the heatmap as a PDF
+# pdf("Heatmap_TCGA_All_Cancers_Sex_Genes.pdf")  # Adjust width and height as needed
+# draw(heatmap)
+# dev.off()  # Close the device after drawing the heatmap
+```
