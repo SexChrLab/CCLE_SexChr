@@ -1,0 +1,3174 @@
+---
+title: "TCGA Go Enrich All Studies"
+author: "MacKenzie Wells"
+date: "2024-09-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r for TCGA ACC}
+# Read the XIST file 
+xist_csv <- read.csv("C:/Users/Owner/Downloads/XISTloss_dge_ALLtissues.csv")
+
+# View the first few rows of the data
+head(xist_csv)
+
+# Read the DDX3Y file
+DDX3Y_csv <- read.csv("C:/Users/Owner/Downloads/DDX3Yloss_dge_ALLtissues.csv")
+
+#View head of DDX3Y
+head(DDX3Y_csv)
+
+###########################################
+##Load cluster profiler, obtain Diff expressed genes
+###########################################
+#Install packages
+
+# Install the required packages
+#BiocManager::install(c("GenomeInfoDbData", "clusterProfiler", "org.Hs.eg.db"))
+#BiocManager::install("GO.db")
+#BiocManager::install("HDO.db")
+#BiocManager::install("clusterProfiler", force = TRUE)
+
+
+#install.packages("dplyr")
+library(dplyr)
+
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ggplot2)
+
+############################################################
+#pull pvalues for acc 
+
+# View column names 
+colnames(xist_csv)
+
+#study
+study <- c("TCGA_ACC")
+
+#filter pvalues < 0.05 but only to TCGA ACC
+filtered_pval_acc <- subset(xist_csv, TCGA.ACC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-ACC
+gene_list_acc <- filtered_pval_acc$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_acc)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_acc)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_acc <- enrichGO(gene = mapped_genes,
+                      OrgDb = org.Hs.eg.db,
+                      keyType = "SYMBOL",
+                      ont = "BP", 
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 1)
+
+# View results
+head(go_en_acc)
+
+# make the go en into a df
+go_en_acc_df <- as.data.frame(go_en_acc)
+
+#head df
+head(go_en_acc_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_acc, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-ACC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_acc_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-ACC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+print(plot)
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-ACC
+###########################
+
+barplot10 <- barplot(go_en_acc, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-ACC")
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r TCGA CESC}
+
+############################################################
+#pull pvalues for CESC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_CESC")
+
+#filter pvalues < 0.05 but only to TCGA CESC
+filtered_pval_CESC <- subset(xist_csv, TCGA.CESC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-CESC
+gene_list_CESC <- filtered_pval_CESC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_CESC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_CESC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_CESC <- enrichGO(gene = mapped_genes,
+                      OrgDb = org.Hs.eg.db,
+                      keyType = "SYMBOL",
+                      ont = "BP", 
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 1)
+
+# View results
+head(go_en_CESC)
+
+# make the go en into a df
+go_en_CESC_df <- as.data.frame(go_en_CESC)
+
+#head df
+head(go_en_CESC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_CESC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-CESC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_CESC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-CESC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-CESC
+###########################
+
+barplot10 <- barplot(go_en_CESC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-CESC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+
+```
+
+``` {r BLCA}
+
+#####
+#BLCA
+#####
+
+study <- c("TCGA_BLCA")
+
+#filter all pvalues < 0.05 FOR BLCA
+filtered_pval_BLCA <- subset(xist_csv, TCGA.BLCA_P.Value < 0.05)
+head(filtered_pval_BLCA)
+# Extract gene list from the filtered data for TCGA-ACC
+gene_list_BLCA <- filtered_pval_BLCA$genes
+head(gene_list_BLCA)
+
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list_BLCA <- sub("\\..*", "", gene_list)
+
+# View the cleaned list
+head(cleaned_gene_list_BLCA)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes_BLCA <- cleaned_gene_list_BLCA[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes_BLCA
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion_BLCA <- bitr(cleaned_gene_list_BLCA, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion_BLCA)
+
+
+# Proceed with the mapped genes
+mapped_genes_BLCA <- gene_conversion_BLCA$SYMBOL
+
+# Perform GO enrichment
+go_en_BLCA <- enrichGO(gene = mapped_genes,
+                      OrgDb = org.Hs.eg.db,
+                      keyType = "SYMBOL",
+                      ont = "BP", 
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 1)
+
+# View results
+head(go_en_BLCA)
+
+# make the go en into a df
+go_en_BLCA_df <- as.data.frame(go_en_BLCA)
+
+#head df
+head(go_en_BLCA_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+
+
+#make data readable to plots
+go_plot_data_BLCA <- go_en_BLCA_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+# Create bar plot
+plot <- ggplot(go_plot_data_BLCA, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-BLCA",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot10 <- barplot(go_en_BLCA, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-BLCA")
+
+print(barplot10)
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+
+
+
+```
+```{r BRCA}
+#BRCA
+
+
+study <- c("TCGA_BRCA")
+
+#filter all pvalues < 0.05 FOR BRCA
+filtered_pval_BRCA <- subset(xist_csv, TCGA.BRCA_P.Value < 0.05)
+head(filtered_pval_BRCA)
+# Extract gene list from the filtered data for TCGA-BRCA
+gene_list_BRCA <- filtered_pval_BRCA$genes
+head(gene_list_BRCA)
+
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list_BRCA <- sub("\\..*", "", gene_list)
+
+# View the cleaned list
+head(cleaned_gene_list_BRCA)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes_BRCA <- cleaned_gene_list[!cleaned_gene_list_BRCA %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes_BRCA
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion_BRCA <- bitr(cleaned_gene_list_BRCA, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion_BRCA)
+
+
+# Proceed with the mapped genes
+mapped_genes_BRCA <- gene_conversion_BRCA$SYMBOL
+
+# Perform GO enrichment
+go_en_BRCA <- enrichGO(gene = mapped_genes,
+                      OrgDb = org.Hs.eg.db,
+                      keyType = "SYMBOL",
+                      ont = "BP", 
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 1)
+
+# View results
+head(go_en_BRCA)
+
+# make the go en into a df
+go_en_BRCA_df <- as.data.frame(go_en_BRCA)
+
+#head df
+head(go_en_BRCA_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+#make data readable to plots
+go_plot_data_BRCA <- go_en_BRCA_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+# Create bar plot
+plot <- ggplot(go_plot_data_BRCA, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-BRCA",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-BRCA
+###########################
+
+barplot10 <- barplot(go_en_BRCA, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-BRCA")
+
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{R COHL}
+
+
+############################################################
+#pull pvalues for CHOL 
+
+# View column names 
+colnames(xist_csv)
+
+#study
+study <- c("TCGA_CHOL")
+
+#filter pvalues < 0.05 but only to TCGA CHOL
+filtered_pval_CHOL <- subset(xist_csv, TCGA.CHOL_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-CHOL
+gene_list_CHOL <- filtered_pval_CHOL$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_CHOL)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_CHOL)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_CHOL <- enrichGO(gene = mapped_genes,
+                      OrgDb = org.Hs.eg.db,
+                      keyType = "SYMBOL",
+                      ont = "BP", 
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 1)
+
+# View results
+head(go_en_CHOL)
+
+# make the go en into a df
+go_en_CHOL_df <- as.data.frame(go_en_CHOL)
+
+#head df
+head(go_en_CHOL_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_CHOL, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-CHOL (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_CHOL_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-CHOL",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+print(plot)
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-CHOL
+###########################
+
+barplot10 <- barplot(go_en_CHOL, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-CHOL")
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+``` {r COAD}
+
+############################################################
+#pull pvalues for COAD 
+
+# View column names 
+colnames(xist_csv)
+
+#study
+study <- c("TCGA_COAD")
+
+#filter pvalues < 0.05 but only to TCGA COAD
+filtered_pval_COAD <- subset(xist_csv, TCGA.COAD_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-COAD
+gene_list_COAD <- filtered_pval_COAD$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_COAD)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_COAD)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_COAD <- enrichGO(gene = mapped_genes,
+                      OrgDb = org.Hs.eg.db,
+                      keyType = "SYMBOL",
+                      ont = "BP", 
+                      pAdjustMethod = "BH",
+                      qvalueCutoff = 1)
+
+# View results
+head(go_en_COAD)
+
+# make the go en into a df
+go_en_COAD_df <- as.data.frame(go_en_COAD)
+
+#head df
+head(go_en_COAD_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_COAD, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-COAD (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_COAD_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-COAD",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-COAD
+###########################
+
+barplot10 <- barplot(go_en_COAD, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-COAD")
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r DLBC}
+
+############################################################
+#pull pvalues for DLBC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_DLBC")
+
+#filter pvalues < 0.05 but only to TCGA DLBC
+filtered_pval_DLBC <- subset(xist_csv, TCGA.DLBC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-DLBC
+gene_list_DLBC <- filtered_pval_DLBC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_DLBC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_DLBC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_DLBC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_DLBC)
+
+# make the go en into a df
+go_en_DLBC_df <- as.data.frame(go_en_DLBC)
+
+#head df
+head(go_en_DLBC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_DLBC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-DLBC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_DLBC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-DLBC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-DLBC
+###########################
+
+barplot10 <- barplot(go_en_DLBC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-DLBC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+
+
+
+```
+
+```{r GBM}
+
+
+############################################################
+#pull pvalues for GBM 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_GBM")
+
+#filter pvalues < 0.05 but only to TCGA GBM
+filtered_pval_GBM <- subset(xist_csv, TCGA.GBM_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-GBM
+gene_list_GBM <- filtered_pval_GBM$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_GBM)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_GBM)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_GBM <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_GBM)
+
+# make the go en into a df
+go_en_GBM_df <- as.data.frame(go_en_GBM)
+
+#head df
+head(go_en_GBM_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_GBM, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-GBM (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_GBM_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-GBM",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-GBM
+###########################
+
+barplot10 <- barplot(go_en_GBM, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-GBM")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r HNSC}
+############################################################
+#pull pvalues for HNSC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_HNSC")
+
+#filter pvalues < 0.05 but only to TCGA HNSC
+filtered_pval_HNSC <- subset(xist_csv, TCGA.HNSC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-HNSC
+gene_list_HNSC <- filtered_pval_HNSC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_HNSC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_HNSC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_HNSC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_HNSC)
+
+# make the go en into a df
+go_en_HNSC_df <- as.data.frame(go_en_HNSC)
+
+#head df
+head(go_en_HNSC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_HNSC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-HNSC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_HNSC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-HNSC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-HNSC
+###########################
+
+barplot10 <- barplot(go_en_HNSC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-HNSC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r KICH}
+############################################################
+#pull pvalues for KICH 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_KICH")
+
+#filter pvalues < 0.05 but only to TCGA KICH
+filtered_pval_KICH <- subset(xist_csv, TCGA.KICH_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-KICH
+gene_list_KICH <- filtered_pval_KICH$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_KICH)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_KICH)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_KICH <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_KICH)
+
+# make the go en into a df
+go_en_KICH_df <- as.data.frame(go_en_KICH)
+
+#head df
+head(go_en_KICH_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_KICH, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-KICH (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_KICH_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-KICH",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-KICH
+###########################
+
+barplot10 <- barplot(go_en_KICH, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-KICH")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r KIRC}
+############################################################
+#pull pvalues for KIRC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_KIRC")
+
+#filter pvalues < 0.05 but only to TCGA KIRC
+filtered_pval_KIRC <- subset(xist_csv, TCGA.KIRC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-KIRC
+gene_list_KIRC <- filtered_pval_KIRC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_KIRC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_KIRC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_KIRC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_KIRC)
+
+# make the go en into a df
+go_en_KIRC_df <- as.data.frame(go_en_KIRC)
+
+#head df
+head(go_en_KIRC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_KIRC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-KIRC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_KIRC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-KIRC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-KIRC
+###########################
+
+barplot10 <- barplot(go_en_KIRC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-KIRC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+
+```
+
+```{r KIRP}
+
+############################################################
+#pull pvalues for KIRP 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_KIRP")
+
+#filter pvalues < 0.05 but only to TCGA KIRP
+filtered_pval_KIRP <- subset(xist_csv, TCGA.KIRP_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-KIRP
+gene_list_KIRP <- filtered_pval_KIRP$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_KIRP)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_KIRP)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_KIRP <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_KIRP)
+
+# make the go en into a df
+go_en_KIRP_df <- as.data.frame(go_en_KIRP)
+
+#head df
+head(go_en_KIRP_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_KIRP, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-KIRP (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_KIRP_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-KIRP",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-KIRP
+###########################
+
+barplot10 <- barplot(go_en_KIRP, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-KIRP")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r LGG}
+
+############################################################
+#pull pvalues for LGG 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_LGG")
+
+#filter pvalues < 0.05 but only to TCGA LGG
+filtered_pval_LGG <- subset(xist_csv, TCGA.LGG_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-LGG
+gene_list_LGG <- filtered_pval_LGG$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_LGG)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_LGG)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_LGG <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_LGG)
+
+# make the go en into a df
+go_en_LGG_df <- as.data.frame(go_en_LGG)
+
+#head df
+head(go_en_LGG_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_LGG, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-LGG (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_LGG_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-LGG",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-LGG
+###########################
+
+barplot10 <- barplot(go_en_LGG, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-LGG")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+
+```
+
+```{r LIHC}
+############################################################
+#pull pvalues for LIHC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_LIHC")
+
+#filter pvalues < 0.05 but only to TCGA LIHC
+filtered_pval_LIHC <- subset(xist_csv, TCGA.LIHC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-LIHC
+gene_list_LIHC <- filtered_pval_LIHC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_LIHC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_LIHC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_LIHC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_LIHC)
+
+# make the go en into a df
+go_en_LIHC_df <- as.data.frame(go_en_LIHC)
+
+#head df
+head(go_en_LIHC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_LIHC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-LIHC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_LIHC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-LIHC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-LIHC
+###########################
+
+barplot10 <- barplot(go_en_LIHC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-LIHC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r LUAD}
+
+############################################################
+#pull pvalues for LUAD 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_LUAD")
+
+#filter pvalues < 0.05 but only to TCGA LUAD
+filtered_pval_LUAD <- subset(xist_csv, TCGA.LUAD_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-LUAD
+gene_list_LUAD <- filtered_pval_LUAD$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_LUAD)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_LUAD)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_LUAD <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_LUAD)
+
+# make the go en into a df
+go_en_LUAD_df <- as.data.frame(go_en_LUAD)
+
+#head df
+head(go_en_LUAD_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_LUAD, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-LUAD (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_LUAD_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-LUAD",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-LUAD
+###########################
+
+barplot10 <- barplot(go_en_LUAD, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-LUAD")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r LUSC}
+
+############################################################
+#pull pvalues for LUSC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_LUSC")
+
+#filter pvalues < 0.05 but only to TCGA LUSC
+filtered_pval_LUSC <- subset(xist_csv, TCGA.LUSC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-LUSC
+gene_list_LUSC <- filtered_pval_LUSC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_LUSC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_LUSC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_LUSC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_LUSC)
+
+# make the go en into a df
+go_en_LUSC_df <- as.data.frame(go_en_LUSC)
+
+#head df
+head(go_en_LUSC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_LUSC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-LUSC (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_LUSC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-LUSC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-LUSC
+###########################
+
+barplot10 <- barplot(go_en_LUSC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-LUSC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r MESO}
+############################################################
+#pull pvalues for MESO 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_MESO")
+
+#filter pvalues < 0.05 but only to TCGA MESO
+filtered_pval_MESO <- subset(xist_csv, TCGA.MESO_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-MESO
+gene_list_MESO <- filtered_pval_MESO$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_MESO)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_MESO)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_MESO <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_MESO)
+
+# make the go en into a df
+go_en_MESO_df <- as.data.frame(go_en_MESO)
+
+#head df
+head(go_en_MESO_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_MESO, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-MESO (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_MESO_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-MESO",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-MESO
+###########################
+
+barplot10 <- barplot(go_en_MESO, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-MESO")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r OV}
+############################################################
+#pull pvalues for OV 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_OV")
+
+#filter pvalues < 0.05 but only to TCGA OV
+filtered_pval_OV <- subset(xist_csv, TCGA.OV_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-OV
+gene_list_OV <- filtered_pval_OV$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_OV)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remove version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_OV)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_OV <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_OV)
+
+# make the go en into a df
+go_en_OV_df <- as.data.frame(go_en_OV)
+
+#head df
+head(go_en_OV_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_OV, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-OV (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_OV_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-OV",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-OV
+###########################
+
+barplot10 <- barplot(go_en_OV, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-OV")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r PAAD}
+
+############################################################
+#pull pvalues for paad 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_paad")
+
+#filter pvalues < 0.05 but only to TCGA paad
+filtered_pval_paad <- subset(xist_csv, TCGA.PAAD_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-paad
+gene_list_paad <- filtered_pval_paad$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_paad)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Rempaade version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_paad)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_paad <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_paad)
+
+# make the go en into a df
+go_en_paad_df <- as.data.frame(go_en_paad)
+
+#head df
+head(go_en_paad_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_paad, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-paad (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_paad_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-paad",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-paad
+###########################
+
+barplot10 <- barplot(go_en_paad, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-paad")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r PCPG}
+
+############################################################
+#pull pvalues for PCPG 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_PCPG")
+
+#filter pvalues < 0.05 but only to TCGA PCPG
+filtered_pval_PCPG <- subset(xist_csv, TCGA.PCPG_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-PCPG
+gene_list_PCPG <- filtered_pval_PCPG$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_PCPG)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemPCPGe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_PCPG)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_PCPG <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_PCPG)
+
+# make the go en into a df
+go_en_PCPG_df <- as.data.frame(go_en_PCPG)
+
+#head df
+head(go_en_PCPG_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_PCPG, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-PCPG (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_PCPG_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-PCPG",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-PCPG
+###########################
+
+barplot10 <- barplot(go_en_PCPG, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-PCPG")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r READ}
+
+############################################################
+#pull pvalues for read 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_read")
+
+#filter pvalues < 0.05 but only to TCGA read
+filtered_pval_read <- subset(xist_csv, TCGA.READ_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-read
+gene_list_read <- filtered_pval_read$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_read)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# Remreade version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_read)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_read <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_read)
+
+# make the go en into a df
+go_en_read_df <- as.data.frame(go_en_read)
+
+#head df
+head(go_en_read_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_read, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-read (Unadjusted p-values)")
+
+
+#make data readable to plots
+go_plot_data <- go_en_read_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-read",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-read
+###########################
+
+barplot10 <- barplot(go_en_read, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-read")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r SARC}
+
+############################################################
+#pull pvalues for SARC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_SARC")
+
+#filter pvalues < 0.05 but only to TCGA SARC
+filtered_pval_SARC <- subset(xist_csv, TCGA.SARC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-SARC
+gene_list_SARC <- filtered_pval_SARC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_SARC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemSARCe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_SARC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_SARC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_SARC)
+
+# make the go en into a df
+go_en_SARC_df <- as.data.frame(go_en_SARC)
+
+#head df
+head(go_en_SARC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_SARC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-SARC (Unadjusted p-values)")
+
+
+#make data SARCable to plots
+go_plot_data <- go_en_SARC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-SARC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-SARC
+###########################
+
+barplot10 <- barplot(go_en_SARC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-SARC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r SKCM}
+
+############################################################
+#pull pvalues for SKCM 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_SKCM")
+
+#filter pvalues < 0.05 but only to TCGA SKCM
+filtered_pval_SKCM <- subset(xist_csv, TCGA.SKCM_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-SKCM
+gene_list_SKCM <- filtered_pval_SKCM$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_SKCM)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemSKCMe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_SKCM)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_SKCM <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_SKCM)
+
+# make the go en into a df
+go_en_SKCM_df <- as.data.frame(go_en_SKCM)
+
+#head df
+head(go_en_SKCM_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_SKCM, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-SKCM (Unadjusted p-values)")
+
+
+#make data SKCMable to plots
+go_plot_data <- go_en_SKCM_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-SKCM",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-SKCM
+###########################
+
+barplot10 <- barplot(go_en_SKCM, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-SKCM")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r STAD}
+
+
+
+############################################################
+#pull pvalues for STAD 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_STAD")
+
+#filter pvalues < 0.05 but only to TCGA STAD
+filtered_pval_STAD <- subset(xist_csv, TCGA.STAD_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-STAD
+gene_list_STAD <- filtered_pval_STAD$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_STAD)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemSTADe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_STAD)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_STAD <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_STAD)
+
+# make the go en into a df
+go_en_STAD_df <- as.data.frame(go_en_STAD)
+
+#head df
+head(go_en_STAD_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_STAD, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-STAD (Unadjusted p-values)")
+
+
+#make data STADable to plots
+go_plot_data <- go_en_STAD_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-STAD",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-STAD
+###########################
+
+barplot10 <- barplot(go_en_STAD, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-STAD")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r THCA}
+############################################################
+#pull pvalues for THCA 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_THCA")
+
+#filter pvalues < 0.05 but only to TCGA THCA
+filtered_pval_THCA <- subset(xist_csv, TCGA.THCA_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-THCA
+gene_list_THCA <- filtered_pval_THCA$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_THCA)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemTHCAe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_THCA)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_THCA <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_THCA)
+
+# make the go en into a df
+go_en_THCA_df <- as.data.frame(go_en_THCA)
+
+#head df
+head(go_en_THCA_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_THCA, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-THCA (Unadjusted p-values)")
+
+
+#make data THCAable to plots
+go_plot_data <- go_en_THCA_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-THCA",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-THCA
+###########################
+
+barplot10 <- barplot(go_en_THCA, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-THCA")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r THYM}
+
+############################################################
+#pull pvalues for THYM 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_THYM")
+
+#filter pvalues < 0.05 but only to TCGA THYM
+filtered_pval_THYM <- subset(xist_csv, TCGA.THYM_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-THYM
+gene_list_THYM <- filtered_pval_THYM$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_THYM)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemTHYMe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_THYM)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_THYM <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_THYM)
+
+# make the go en into a df
+go_en_THYM_df <- as.data.frame(go_en_THYM)
+
+#head df
+head(go_en_THYM_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_THYM, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-THYM (Unadjusted p-values)")
+
+
+#make data THYMable to plots
+go_plot_data <- go_en_THYM_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-THYM",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-THYM
+###########################
+
+barplot10 <- barplot(go_en_THYM, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-THYM")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r UCEC}
+
+############################################################
+#pull pvalues for UCEC 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_UCEC")
+
+#filter pvalues < 0.05 but only to TCGA UCEC
+filtered_pval_UCEC <- subset(xist_csv, TCGA.UCEC_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-UCEC
+gene_list_UCEC <- filtered_pval_UCEC$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_UCEC)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemUCECe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_UCEC)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_UCEC <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_UCEC)
+
+# make the go en into a df
+go_en_UCEC_df <- as.data.frame(go_en_UCEC)
+
+#head df
+head(go_en_UCEC_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_UCEC, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-UCEC (Unadjusted p-values)")
+
+
+#make data UCECable to plots
+go_plot_data <- go_en_UCEC_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-UCEC",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-UCEC
+###########################
+
+barplot10 <- barplot(go_en_UCEC, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-UCEC")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r UCS}
+
+############################################################
+#pull pvalues for UCS 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_UCS")
+
+#filter pvalues < 0.05 but only to TCGA UCS
+filtered_pval_UCS <- subset(xist_csv, TCGA.UCS_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-UCS
+gene_list_UCS <- filtered_pval_UCS$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_UCS)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemUCSe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_UCS)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_UCS <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_UCS)
+
+# make the go en into a df
+go_en_UCS_df <- as.data.frame(go_en_UCS)
+
+#head df
+head(go_en_UCS_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_UCS, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-UCS (Unadjusted p-values)")
+
+
+#make data UCSable to plots
+go_plot_data <- go_en_UCS_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-UCS",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-UCS
+###########################
+
+barplot10 <- barplot(go_en_UCS, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-UCS")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r UVM}
+
+############################################################
+#pull pvalues for UVM 
+
+# View column names 
+colnames(xist_csv)
+
+#study name
+study <- c("TCGA_UVM")
+
+#filter pvalues < 0.05 but only to TCGA UVM
+filtered_pval_UVM <- subset(xist_csv, TCGA.UVM_P.Value < 0.05)
+# Extract gene list from the filtered data for TCGA-UVM
+gene_list_UVM <- filtered_pval_UVM$genes
+
+#view head of gene list of pvalues <0.05, ENS ID
+head(gene_list_UVM)
+###################################################################
+#must clean the EID numbers, this willnot work with the ENDG00001233455.091 for example
+# RemUVMe version numbers from Ensembl IDs
+cleaned_gene_list <- sub("\\..*", "", gene_list_UVM)
+
+# View the cleaned list
+head(cleaned_gene_list)
+
+# some genes will not be mapped (7.9%) because ???
+unmapped_genes <- cleaned_gene_list[!cleaned_gene_list %in% gene_conversion$ENSEMBL]
+
+# this is to see the unmapped genes
+unmapped_genes
+
+# Convert cleaned ENS to Gene Symbols
+gene_conversion <- bitr(cleaned_gene_list, fromType = "ENSEMBL", 
+                        toType = "SYMBOL", 
+                        OrgDb = org.Hs.eg.db)
+
+# View the converted gene symbols
+head(gene_conversion)
+
+
+# Proceed with the mapped genes
+mapped_genes <- gene_conversion$SYMBOL
+
+# Perform GO enrichment
+go_en_UVM <- enrichGO(gene = mapped_genes,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP", 
+                       pAdjustMethod = "BH",
+                       qvalueCutoff = 1)
+
+# View results
+head(go_en_UVM)
+
+# make the go en into a df
+go_en_UVM_df <- as.data.frame(go_en_UVM)
+
+#head df
+head(go_en_UVM_df)
+
+
+#######################
+# bar plot creation!
+#######################
+
+
+# Plot the GO enrichment results using unadjusted p-values but why it still says padjust
+barplot(go_en_UVM, showCategory = 10, title = "Top 10 GO Terms for XIST-loss in TCGA-UVM (Unadjusted p-values)")
+
+
+#make data UVMable to plots
+go_plot_data <- go_en_UVM_df %>%
+  arrange(desc(Count)) %>%
+  head(10)  #top 10 genes
+
+
+# Create bar plot
+plot <- ggplot(go_plot_data, aes(x = reorder(Description, -Count), y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "GO Enrichment Analysis for TCGA-UVM",
+       x = "GO Terms",
+       y = "Gene Count") +
+  theme_minimal()
+
+###########################
+#top 10 GO terms for XIST loss in TCGA-UVM
+###########################
+
+barplot10 <- barplot(go_en_UVM, showCategory = 10, title = "Top 10 Terms for XIST-loss in TCGA-UVM")
+
+
+#SAVE BARPLOTS
+
+#output
+output_dir <- "C:/Users/Owner/Documents/TCGA_GO_BAR_PLOTS/"
+
+# Create a filename using the study name
+filename <- paste0(output_dir, study, "_GO_Enrichment.png")
+filename10 <- paste0(output_dir, study, "_10_GO_Enrichment.png")
+
+# Save the plot
+ggsave(filename = filename, plot = plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = filename10, plot = barplot10, width = 10, height = 8, dpi = 300)
+
+```
+
+
+
+
+
+
+
+
