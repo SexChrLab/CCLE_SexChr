@@ -6,6 +6,11 @@ output: html_document
 ---
 
 
+### Note: This code is to combine all the TPM's extracted for TCGA into one dataframe
+### Also, I added the full names of the cancer types, since TCGA data extraction does not provide this
+### Names for TCGA cancer types appreviations can be found in this link: https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tcga-study-abbreviations 
+
+
 ## Set options for printing reports
 ```{r Printoptions}
 # this will make sure that the code doesn't run off the page when printing a report
