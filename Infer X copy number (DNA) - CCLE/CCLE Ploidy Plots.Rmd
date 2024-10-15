@@ -188,7 +188,7 @@ create_gene_violin_plot_by_sex <- function(data, gene_expression, ploidy, remove
     ) +
     theme_minimal() +
     scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +  # Handle NA values in y-axis labels
-    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), 
+    scale_fill_manual(values = c("Female" = "#ff9900ff", "Male" = "#ff99007f"), 
                       name = "Reported Sex") +
     scale_color_manual(values = c("Female" = "black", "Male" = "black"), 
                        name = "Reported Sex") +  # Add a color scale for points
@@ -242,7 +242,7 @@ create_gene_violin_plot_with_stats <- function(data, gene_expression, ploidy, re
     theme_minimal() +
     scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA), 
                        limits = c(NA, max(summary_stats$max_value) + 0.5)) +  # Set upper limit with padding
-    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), 
+    scale_fill_manual(values = c("Female" = "#ff9900ff", "Male" = "#ff99007f"), 
                       name = "Reported Sex") +
     scale_color_manual(values = c("Female" = "black", "Male" = "black"), 
                        name = "Reported Sex") +  # Add a color scale for points
@@ -351,8 +351,8 @@ genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y",
 for (gene in genes) {
  all_data_plot <- create_gene_violin_plot_by_sex(expression_ploidy_data, gene, "Y_ploidy")
   
-  # Save the plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0(gene, "_Y_ploidy_sex_violin_plot.png")), plot = all_data_plot, width = 8, height = 6)
+  # Save the plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0(gene, "_Y_ploidy_sex_violin_plot.pdf")), plot = all_data_plot, width = 8, height = 6)
 }
 
 # Run the function for each gene for X_ploidy and save the plots
@@ -363,8 +363,8 @@ genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y",
 for (gene in genes) {
   all_data_plot <- create_gene_violin_plot_by_sex(expression_ploidy_data, gene, "X_ploidy")
   
-  # Save the plot to a PNG file
-  ggsave(filename = file.path("output_directory", paste0("All_", gene, "_Y_ploidy_violin_plot.png")), 
+  # Save the plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("All_", gene, "_Y_ploidy_violin_plot.pdf")), 
          plot = all_data_plot, width = 8, height = 6)
 }
 
@@ -377,8 +377,8 @@ for (gene in genes) {
 for (gene in genes) {
   male_plot <- create_gene_violin_plot_by_sex(male_data, gene, "Y_ploidy")
   
-  # Save the male plot to a PNG file
-  ggsave(filename = file.path("output_directory", paste0("Male_", gene, "_Y_ploidy_violin_plot.png")), 
+  # Save the male plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_Y_ploidy_violin_plot.pdf")), 
          plot = male_plot, width = 8, height = 6)
 }
 
@@ -386,8 +386,8 @@ for (gene in genes) {
 for (gene in genes) {
   female_plot <- create_gene_violin_plot_by_sex(female_data, gene, "Y_ploidy")
   
-  # Save the female plot to a PNG file
-  ggsave(filename = file.path("output_directory", paste0("Female_", gene, "_Y_ploidy_violin_plot.png")), 
+  # Save the female plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_Y_ploidy_violin_plot.pdf")), 
          plot = female_plot, width = 8, height = 6)
 }
 
@@ -400,8 +400,8 @@ for (gene in genes) {
 for (gene in genes) {
   male_plot <- create_gene_violin_plot_by_sex(male_data, gene, "X_ploidy")
   
-  # Save the male plot to a PNG file
-  ggsave(filename = file.path("output_directory", paste0("Male_", gene, "_X_ploidy_violin_plot.png")), 
+  # Save the male plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_X_ploidy_violin_plot.pdf")), 
          plot = male_plot, width = 8, height = 6)
 }
 
@@ -409,8 +409,8 @@ for (gene in genes) {
 for (gene in genes) {
   female_plot <- create_gene_violin_plot_by_sex(female_data, gene, "X_ploidy")
   
-  # Save the female plot to a PNG file
-  ggsave(filename = file.path("output_directory", paste0("Female_", gene, "_X_ploidy_violin_plot.png")), 
+  # Save the female plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_X_ploidy_violin_plot.pdf")), 
          plot = female_plot, width = 8, height = 6)
 }
 
@@ -426,16 +426,16 @@ genes <- c("log_KDM5D", "log_DDX3Y", "log_EIF1AY", "log_NLGN4Y",
 for (gene in genes) {
   all_data_plot <- create_gene_violin_plot_with_stats(expression_ploidy_data, gene, "Y_ploidy")
   
-  # Save the plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0(gene, "_Y_ploidy_sex_violin_plot_stats.png")), plot = all_data_plot, width = 8, height = 6)
+  # Save the plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0(gene, "_Y_ploidy_sex_violin_plot_stats.pdf")), plot = all_data_plot, width = 8, height = 6)
 }
 
 # Run the function for each gene for X_ploidy and save the plots
 for (gene in genes) {
   all_data_plot <- create_gene_violin_plot_with_stats(expression_ploidy_data, gene, "X_ploidy")
   
-  # Save the plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0("All_", gene, "_X_ploidy_violin_plot_stats.png")), 
+  # Save the plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("All_", gene, "_X_ploidy_violin_plot_stats.pdf")),
          plot = all_data_plot, width = 8, height = 6)
 }
 
@@ -443,8 +443,8 @@ for (gene in genes) {
 for (gene in genes) {
   male_plot <- create_gene_violin_plot_with_stats(male_data, gene, "Y_ploidy")
   
-  # Save the male plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_Y_ploidy_violin_plot_stats.png")), 
+  # Save the male plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_Y_ploidy_violin_plot_stats.pdf")), 
          plot = male_plot, width = 8, height = 6)
 }
 
@@ -452,8 +452,8 @@ for (gene in genes) {
 for (gene in genes) {
   female_plot <- create_gene_violin_plot_with_stats(female_data, gene, "Y_ploidy")
   
-  # Save the female plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_Y_ploidy_violin_plot_stats.png")), 
+  # Save the female plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_Y_ploidy_violin_plot_stats.pdf")), 
          plot = female_plot, width = 8, height = 6)
 }
 
@@ -461,8 +461,8 @@ for (gene in genes) {
 for (gene in genes) {
   male_plot <- create_gene_violin_plot_with_stats(male_data, gene, "X_ploidy")
   
-  # Save the male plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_X_ploidy_violin_plot_stats.png")), 
+  # Save the male plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Male_", gene, "_X_ploidy_violin_plot_stats.pdf")), 
          plot = male_plot, width = 8, height = 6)
 }
 
@@ -470,8 +470,8 @@ for (gene in genes) {
 for (gene in genes) {
   female_plot <- create_gene_violin_plot_with_stats(female_data, gene, "X_ploidy")
   
-  # Save the female plot to a PNG file
-  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_X_ploidy_violin_plot_stats.png")), 
+  # Save the female plot to a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Female_", gene, "_X_ploidy_violin_plot_stats.pdf")), 
          plot = female_plot, width = 8, height = 6)
 }
 
@@ -510,7 +510,7 @@ create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
       x = "Reported Sex and Ploidy Status",
       y = "Log-transformed Expression"
     ) +
-    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), name = "Reported Sex") +
+    scale_fill_manual(values = c("Female" = "#ff9900ff", "Male" = "#ff99007f"), name = "Reported Sex") +
     scale_color_manual(values = c("Female" = "black", "Male" = "black"), name = "Reported Sex") +  # Add a color scale for points
     theme_minimal() +
     scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +
@@ -555,13 +555,13 @@ create_faceted_violin_plot <- function(data, ploidy, remove_na = TRUE) {
   ggplot(data_long, aes(x = spaced_interaction, y = expression_value, fill = Biological_sex)) + 
     geom_violin(width = 0.8, scale = "width") +  # Adjust width for better appearance
     geom_jitter(width = 0.2, aes(x = spaced_interaction, y = expression_value, color = Biological_sex), 
-                size = 0.5) +  # Add points with jitter and smaller size
+                size = 0.5, alpha = 0.8) +  # Add points with jitter and smaller size
     labs(
       title = "Distribution of Gene Expression by Reported Sex and Ploidy",
       x = "Reported Sex and Ploidy Status",
       y = "Log-transformed Expression"
     ) +
-    scale_fill_manual(values = c("Female" = "royalblue", "Male" = "lightblue"), name = "Reported Sex") +
+    scale_fill_manual(values = c("Female" = "#ff9900ff", "Male" = "#ff99007f"), name = "Reported Sex") +
     scale_color_manual(values = c("Female" = "black", "Male" = "black"), name = "Reported Sex") +  # Add a color scale for points
     theme_minimal() +
     scale_y_continuous(labels = function(x) ifelse(is.finite(x), round(x, 2), NA)) +
@@ -607,31 +607,31 @@ female_data_X_plot
 
 
 ```{r}
-# Save the plot as a PNG file
-ggsave(filename = file.path("output_directory", "Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.png"), 
+# Save the plot as a PDF file
+ggsave(filename = file.path(output_directory, paste0("Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.pdf")),
        plot = all_data_Y_plot, width = 12, height = 8)
 
-ggsave(filename = file.path("output_directory", "Faceted_Gene_Expression_X_Ploidy_Violin_Plot.png"), 
+ggsave(filename = file.path(output_directory, paste0("Faceted_XIST_Expression_X_Ploidy_Violin_Plot.pdf")),
        plot = all_data_X_plot, width = 12, height = 8)
 
 ```
 
 ```{r}
 # Save the plot as a PNG file
-ggsave(filename = file.path("output_directory", "Male_Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.png"), 
+ggsave(filename = file.path(output_directory, paste0("Male_Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.pdf")),
        plot = male_data_Y_plot, width = 12, height = 8)
 
-ggsave(filename = file.path("output_directory", "Male_Faceted_Gene_Expression_X_Ploidy_Violin_Plot.png"), 
+ggsave(filename = file.path(output_directory, paste0("Male_Faceted_XIST_Expression_X_Ploidy_Violin_Plot.pdf")), 
        plot = male_data_X_plot, width = 12, height = 8)
 
 ```
 
 ```{r}
-# Save the plot as a PNG file
-ggsave(filename = file.path("output_directory", "Female_Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.png"), 
-       plot = female_data_Y_plot, width = 12, height = 8)
+# Save the plot as a PDF file
+  ggsave(filename = file.path(output_directory, paste0("Female_Faceted_Gene_Expression_Y_Ploidy_Violin_Plot.pdf")), 
+         plot = female_data_Y_plot, width = 12, height = 8)
 
-ggsave(filename = file.path("output_directory", "Female_Faceted_Gene_Expression_X_Ploidy_Violin_Plot.png"), 
+ggsave(filename = file.path(output_directory, paste0("Female_Faceted_XIST_Expression_X_Ploidy_Violin_Plot.pdf")),
        plot = female_data_X_plot, width = 12, height = 8)
 
 ```
