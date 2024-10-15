@@ -41,7 +41,7 @@ Read the gene expression data and the supplemental table from the CSV files.
 library(readr)
 male_LoY_data <- read_csv(file.path(data_directory, "SA1_male_LoY_TCGA.csv"))
 female_LoX_data <- read_csv(file.path(data_directory, "SA2_female_LoX_TCGA.csv"))
-complement_data <- read_csv(file.path(data_directory, "inferred_sex_chromosome_complement-2.csv"))
+complement_data <- read_csv(file.path(data_directory, "inferred_sex_chromosome_complement.csv"))
 
 ```
 
@@ -107,7 +107,7 @@ male_y_expression_plot <- ggplot(male_data, aes(x = Y_status, fill = Y_inferred_
   geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
 
 # Save the plot to the output directory
-ggsave(filename = file.path(output_directory, "TCGA_male_count_stacked_bar_Y_expression.png"), 
+ggsave(filename = file.path(output_directory, "TCGA_male_count_stacked_bar_Y_expression.pdf"), 
        plot = male_y_expression_plot)
 
 # Optional: Print plot to display in RMarkdown output
@@ -140,7 +140,7 @@ create_y_plot <- function(gene_col) {
 # Generate and save plots for Y-linked gene expression categories in males
 for (gene in y_genes) {
   plot <- create_y_plot(gene)
-  ggsave(filename = file.path(output_directory, paste0("TCGA_male_count_stacked_bar_", gene, ".png")), plot = plot)
+  ggsave(filename = file.path(output_directory, paste0("TCGA_male_count_stacked_bar_", gene, ".pdf")), plot = plot)
   print(plot)  # Optional for viewing the plots in RMarkdown output
 }
 
@@ -163,7 +163,7 @@ female_x_expression_plot <- ggplot(female_data, aes(x = X_status, fill = X_infer
   geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
 
 # Save the plot to the output directory
-ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_expression.png"), 
+ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_expression.pdf"), 
        plot = male_y_expression_plot)
 
 # Optional: Print plot to display in RMarkdown output
@@ -186,8 +186,8 @@ female_x_expression_plot <- ggplot(female_data, aes(x = X_status, fill = XIST_ex
   geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5), size = 4)  # Add counts on top of bars
 
 # Save the plot to the output directory
-ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_expression.png"), 
-       plot = male_y_expression_plot)
+ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_expression.pdf"), 
+       plot = female_x_expression_plot)
 
 # Optional: Print plot to display in RMarkdown output
 print(female_x_expression_plot)
