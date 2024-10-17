@@ -1,0 +1,2255 @@
+---
+title: "check_consistency"
+author: "Ilsa Rodriguez"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r}
+
+data_out_path <- "C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/"
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Load your data here
+counts_plus <- read.csv("TCGA_RNA_data_all_modified.csv")
+
+# Remove rows with NA values in the sex column
+counts_plus <- counts_plus %>% filter(!is.na(sex))
+
+# Define female and male genes
+female_genes <- c("XIST")
+male_genes <- c("USP9Y","UTY","ZFY","DDX3Y","EIF1AY","KDM5D","NLGN4Y","TMSB4Y","RPS4Y1")
+
+# Loop through each gene and apply the thresholds, adding results to counts_plus
+for (gene in c(female_genes, male_genes)) {
+
+  # Ensure that the gene expression data is numeric
+  counts_plus[[gene]] <- as.numeric(as.character(counts_plus[[gene]]))
+  
+  # Replace NAs with 0 or another value if needed
+  counts_plus[[gene]][is.na(counts_plus[[gene]])] <- 0
+  
+  # Apply the specific thresholds based on gene type
+  if (gene %in% female_genes) {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$sex == 'male'], na.rm = TRUE) + 3 * sd(counts_plus[[gene]][counts_plus$sex == 'male'], na.rm = TRUE)
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$sex == 'male'], na.rm = TRUE) + 1 * sd(counts_plus[[gene]][counts_plus$sex == 'male'], na.rm = TRUE)
+  } else {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$sex == 'female'], na.rm = TRUE) + 3 * sd(counts_plus[[gene]][counts_plus$sex == 'female'], na.rm = TRUE)
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$sex == 'female'], na.rm = TRUE) + 1 * sd(counts_plus[[gene]][counts_plus$sex == 'female'], na.rm = TRUE)
+  }
+
+  # Apply log1p transformation
+  counts_plus[[paste0(gene, "_log_expression")]] <- log1p(counts_plus[[gene]])
+  
+  # Predict sex based on thresholds
+  counts_plus[[paste0(gene, "_predicted_sex")]] <- if (gene %in% male_genes) {
+    ifelse(counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "male",
+           ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "female", "cannot_predict"))
+  } else {
+    ifelse(counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "female",
+           ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "male", "cannot_predict"))
+  }
+
+  # Add the predicted expression category (high, low, intermediate)
+  counts_plus[[paste0(gene, "_predicted_expression")]] <- ifelse(counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "high_expression", 
+                                                                 ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "low_expression", "intermediate_expression"))
+  
+  # Optionally, generate plots for each gene (this part remains unchanged)
+  gene_data_for_plot <- data.frame(annotated_sex = counts_plus$sex, 
+                                   cancer_type = counts_plus$project_id, 
+                                   expression = counts_plus[[paste0(gene, "_log_expression")]])
+
+  custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+  
+  p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+    scale_x_discrete(labels = cancer_type_labels) +
+    scale_color_manual(values = custom_colors) +
+    ylab(paste0(gene, " Expression (log-transformed)")) +
+    xlab("Cancer Types") +
+    geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") +
+    geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue") +
+    theme_light() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+          axis.text.y = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+
+  print(p)
+
+  violin6_fname <- paste("Log_Violin", gene, ".png", sep = "_")
+  ggsave(violin6_fname, p, width = 15, height = 7, units = "in", dpi = 300)
+}
+
+# Save the updated data frame with new columns
+write.csv(counts_plus, "TCGA_RNA_data_all_modified_with_predictions.csv", row.names = FALSE)
+
+
+```
+```{r}
+
+```
+```{r}
+# # Load necessary libraries
+# library(ggplot2)
+# library(dplyr)
+# library(caret)
+# library(pROC)
+# 
+# # Set your data output path
+# data_out_path <- "C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/"
+# 
+# # Load your data here
+# counts_plus <- read.csv("TCGA_RNA_data_all_modified.csv")
+# 
+# # Remove rows with NA values in the sex column
+# counts_plus <- counts_plus %>% filter(!is.na(sex))
+# 
+# # Convert sex to a binary numeric variable: 0 for female, 1 for male
+# counts_plus$sex_binary <- ifelse(counts_plus$sex == "male", 1, 0)
+# 
+# # Define female and male genes
+# female_genes <- c("XIST")
+# male_genes <- c("USP9Y","UTY","ZFY","DDX3Y","EIF1AY","KDM5D","NLGN4Y","TMSB4Y","RPS4Y1")
+# 
+# # Initialize a dataframe to store performance metrics
+# metrics_df <- data.frame(
+#   Gene = character(),
+#   Accuracy = numeric(),
+#   Precision = numeric(),
+#   Recall = numeric(),
+#   F1_Score = numeric(),
+#   AUC = numeric(),
+#   stringsAsFactors = FALSE
+# )
+# 
+# # Function to fit logistic regression and predict sex
+# fit_logistic_model <- function(gene_expression, sex_binary) {
+#   model <- glm(sex_binary ~ gene_expression, family = binomial)
+#   predicted_prob <- predict(model, type = "response")
+#   return(predicted_prob)
+# }
+# 
+# # Loop through each gene and apply the logistic regression model
+# for (gene in c(female_genes, male_genes)) {
+# 
+#   # Ensure that the gene expression data is numeric
+#   counts_plus[[gene]] <- as.numeric(as.character(counts_plus[[gene]]))
+#   
+#   # Replace NAs with 0 or another value if needed
+#   counts_plus[[gene]][is.na(counts_plus[[gene]])] <- 0
+#   
+#   # Fit the logistic regression model and get predicted probabilities
+#   predicted_prob <- fit_logistic_model(counts_plus[[gene]], counts_plus$sex_binary)
+#   counts_plus[[paste0(gene, "_predicted_prob")]] <- predicted_prob
+#   
+#   # Classify based on the threshold (0.5 by default)
+#   threshold <- 0.5
+#   predictions <- ifelse(predicted_prob >= threshold, "male", "female")
+#   counts_plus[[paste0(gene, "_predicted_sex")]] <- predictions
+#   
+#   # Add the predicted expression category (high or low)
+#   counts_plus[[paste0(gene, "_predicted_expression")]] <- ifelse(predicted_prob >= threshold, "high_expression", "low_expression")
+#   
+#   # Calculate performance metrics
+#   confusion_matrix <- table(Predicted = predictions, Actual = counts_plus$sex)
+#   accuracy <- sum(predictions == counts_plus$sex) / nrow(counts_plus)
+#   precision <- confusion_matrix["male", "male"] / sum(confusion_matrix["male", ])
+#   recall <- confusion_matrix["male", "male"] / sum(confusion_matrix[, "male"])
+#   f1_score <- 2 * (precision * recall) / (precision + recall)
+#   auc_value <- auc(roc(counts_plus$sex, predicted_prob, levels = c("female", "male")))
+#   
+#   # Save metrics to the dataframe
+#   metrics_df <- rbind(metrics_df, data.frame(
+#     Gene = gene,
+#     Accuracy = accuracy,
+#     Precision = precision,
+#     Recall = recall,
+#     F1_Score = f1_score,
+#     AUC = auc_value
+#   ))
+#   
+#   # Visualization code
+#   gene_data_for_plot <- data.frame(
+#     annotated_sex = counts_plus$sex, 
+#     cancer_type = counts_plus$project_id, 
+#     expression = counts_plus[[paste0(gene, "_predicted_prob")]]
+#   )
+# 
+#   custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+#   
+#   p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+#     geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+#     scale_y_continuous(trans = "log10") +
+#     scale_fill_manual(values = c("grey", "orange")) +
+#     geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+#     scale_x_discrete(labels = cancer_type_labels) +
+#     scale_color_manual(values = custom_colors) +
+#     ylab(paste0(gene, " Predicted Probability (log-transformed)")) +
+#     xlab("Cancer Types") +
+#     geom_hline(yintercept = threshold, linetype="dashed", color = "maroon") +
+#     theme_light() +
+#     theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+#           axis.text.y = element_text(size = 10),
+#           plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+# 
+#   print(p)
+# 
+#   violin6_fname <- paste("Log_Violin", gene, ".png", sep = "_")
+#   ggsave(file.path(data_out_path, violin6_fname), p, width = 15, height = 7, units = "in", dpi = 300)
+# }
+# 
+# # Save the performance metrics to a CSV file
+# write.csv(metrics_df, file.path(data_out_path, "logistic_regression_metrics.csv"), row.names = FALSE)
+# 
+# # Save the updated data frame with new columns
+# write.csv(counts_plus, file.path(data_out_path, "TCGA_RNA_data_all_modified_with_predictions.csv"), row.names = FALSE)
+
+
+```
+
+
+
+
+```{r}
+data_out_path <- "C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/"
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Load your data here
+counts_plus <- read.csv("TCGA_RNA_data_all_modified.csv")
+
+# Remove rows with NA values in the sex column
+counts_plus <- counts_plus %>% filter(!is.na(sex))
+
+# Define female and male genes
+female_genes <- c("XIST")
+male_genes <- c("USP9Y","UTY","ZFY","SRY","AMELY","DDX3Y","EIF1AY","KDM5D","NLGN4Y","PRKY","TMSB4Y","RPS4Y1")
+
+# Loop through each gene and apply the thresholds, adding results to counts_plus
+for (gene in c(female_genes, male_genes)) {
+
+  # Check for non-numeric data and handle it
+  counts_plus[[gene]] <- as.numeric(as.character(counts_plus[[gene]]))
+  
+  # Replace NAs with 0 or another value if needed
+  counts_plus[[gene]][is.na(counts_plus[[gene]])] <- 0
+  
+  # Calculate a single high and low threshold based on the overall data
+  high_threshold <- mean(counts_plus[[gene]], na.rm = TRUE) + 2.5 * sd(counts_plus[[gene]], na.rm = TRUE)
+  low_threshold <- mean(counts_plus[[gene]], na.rm = TRUE) + 0.5 * sd(counts_plus[[gene]], na.rm = TRUE)
+
+  # Apply log1p transformation
+  counts_plus[[paste0(gene, "_log_expression")]] <- log1p(counts_plus[[gene]])
+  
+  # Predict sex based on thresholds
+  counts_plus[[paste0(gene, "_predicted_sex")]] <- if (gene %in% male_genes) {
+    ifelse(counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "male",
+           ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "female", "cannot_predict"))
+  } else {
+    ifelse(counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "female",
+           ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "male", "cannot_predict"))
+  }
+
+  # Add the predicted expression category (high, low, intermediate)
+  counts_plus[[paste0(gene, "_predicted_expression")]] <- ifelse(counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "high_expression", 
+                                                                 ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "low_expression", "intermediate_expression"))
+  
+  # Optionally, generate plots for each gene (this part remains unchanged)
+  gene_data_for_plot <- data.frame(annotated_sex = counts_plus$sex, 
+                                   cancer_type = counts_plus$project_id, 
+                                   expression = counts_plus[[paste0(gene, "_log_expression")]])
+
+  custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+  
+  p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) + 
+    scale_x_discrete(labels = cancer_type_labels) +
+    scale_color_manual(values = custom_colors) +
+    ylab(paste0(gene, " Expression (log-transformed)")) +
+    xlab("Cancer Types") +
+    geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") +
+    geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue") +
+    theme_light() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+          axis.text.y = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+  
+  print(p)
+
+  violin6_fname <- paste("Log_Violin", gene, ".png", sep = "_")
+  ggsave(violin6_fname, p, width = 15, height = 7, units = "in", dpi = 300)
+}
+
+# Save the updated data frame with new columns
+write.csv(counts_plus, "TCGA_RNA_data_all_modified_with_predictions.csv", row.names = FALSE)
+
+
+
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Load your data here
+counts_plus <- read.csv("combined_cancer_data_v5.csv")
+
+# Removed rows with NA values in the annotated_sex column in combined_cancer_data2
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+# call LCML
+cancer_type_labels <- c(
+  "LAML" = "LAML (Myeloid Leukemia)", #blood
+  "ACC" = "ACC (Adrenocortical)",
+  "BLCA" = "BLCA (Bladder Urothelial)",
+  "LGG" = "LGG (Brain Lower Grade Glioma)",
+  "BRCA" = "BRCA (Breast Invasive)",
+  "CESC" = "CESC (Cervical Squamous)",
+  "CHOL" = "CHOL (Cholangiocarcinoma)",
+  "COAD" = "COAD (Colon)",
+  "ESCA" = "ESCA (Esophageal)",
+  "GBM" = "GBM (Glioblastoma)",
+  "HNSC" = "HNSC (Head & Neck Squamous Cell)",
+  "KICH" = "KICH (Kidney Chromophobe)",
+  "KIRC" = "KIRC (Kidney Renal Clear cell)",
+  "KIRP" = "KIRP (Kidney Renal Papillary cell)",
+  "LIHC" = "LIHC (Liver Hepatocellular)",
+  "LUAD" = "LUAD (Lung)",
+  "LUSC" = "LUSC (Lung Squamous Cell)",
+  "DLBC" = "DLBC (Lymphoid Neoplasm)",
+  "MESO" = "MESO (Mesothelioma)",
+  "OV" = "OV (Ovarian)",
+  "PAAD" = "PAAD (Pancreatic)",
+  "PCPG" = "PCPG (Pheochromocytoma & Paraganglioma)",
+  "PRAD" = "PRAD (Prostate)",
+  "READ" = "READ (Rectum)",
+  "SARC" = "SARC (Sarcoma)",
+  "SKCM" = "SKCM (Skin Cutaneous)",
+  "STAD" = "STAD (Stomach)",
+  "TGCT" = "TGCT (Testicular Germ Cell Tumor)",
+  "THCA" = "THCA (Thyroid gland)",
+  "THYM" = "THYM (Thymoma)",
+  "UCS" = "UCS (Uterine Carcinosarcoma)",
+  "UCEC" = "UCEC (Uterine Corpus Endometrial)",
+  "UVM" = "UVM (Uveal)"
+)
+# Define female genes
+female_genes <- c("XIST")
+
+# Define male genes
+male_genes <- c("USP9Y","UTY","ZFY","SRY","AMELY","DDX3Y","EIF1AY","KDM5D","NLGN4Y","PRKY","TMSB4Y","RPS4Y1")
+
+# Initialize a dataframe to store results for all genes
+all_genes_data <- data.frame(RowID = counts_plus$rowname, 
+                             cancer_type = counts_plus$CancerType,
+                             annotated_sex = counts_plus$annotated_sex, 
+                             XIST_status = counts_plus$status_XIST, 
+                             Y_status = counts_plus$status_Y)
+
+for (gene in c(female_genes, male_genes)) {
+  gene_expression <- log1p(counts_plus[[gene]]) 
+  
+  
+# we need to finalized on the method of thersholds, we talked about it during the spring semester.
+  if (gene %in% female_genes) {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) +4.5 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) +3 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+  } else {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + 4.5 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) +3 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  }
+
+  predicted_sex <- if (gene %in% male_genes) {
+    ifelse(gene_expression >= high_threshold, "male",
+           ifelse(gene_expression <= low_threshold, "female", "cannot_predict"))
+  } else {
+    ifelse(gene_expression >= high_threshold, "female",
+           ifelse(gene_expression <= low_threshold, "male", "cannot_predict"))
+  }
+
+  gene_data_for_plot <- data.frame(annotated_sex = counts_plus$annotated_sex, 
+                                   cancer_type = counts_plus$CancerType, 
+                                   expression = gene_expression)
+  
+ #custom colors for male and females for points  
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+ 
+
+
+  p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5,position =  position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+   geom_point(aes(color = annotated_sex),  size = 0.45, position = position_dodge(width = 0.75))  + 
+  scale_x_discrete(labels = cancer_type_labels) +
+  scale_color_manual(values = custom_colors) +
+    ylab(paste0(gene, " Expression (log-transformed)")) +
+    xlab(paste("Cancer Types")) +
+    
+    # this is to show the thresholds which are still a work in progress 
+    
+    geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") +
+    geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue") +
+    theme_light() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+          axis.text.y = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+  print(p)
+
+  all_genes_data[[paste0(gene, "_log_expression")]] <- counts_plus[[gene]]
+  all_genes_data[[paste0(gene, "_predicted_sex")]] <- predicted_sex
+  all_genes_data[[paste0(gene, "_predicted_expression")]] <- ifelse(counts_plus[[gene]] >= high_threshold, "high_expression", ifelse(counts_plus[[gene]] <= low_threshold, "low_expression", "intermediate_expression"))
+
+  violin6_fname <- paste("Log_Violin", gene, ".png", sep = "_")
+  ggsave(violin6_fname, p, width = 15, height = 7, units = "in", dpi = 300)
+}
+
+# Save the comprehensive results to a CSV file
+#write.csv(all_genes_data, "expression_data_all_genes_with_predicted_sex.csv", row.names = FALSE)
+  ggsave(violin6_fname, p, width = 15, height = 7, units = "in", dpi = 300)
+
+
+# Save the comprehensive results to a CSV file
+write.csv(all_genes_data, "expression_data_all_genes_with_predicted_sex.csv", row.names = FALSE)
+```
+
+```{r}
+# # Load necessary libraries
+# library(ggplot2)
+# library(dplyr)
+# library(tidyr)
+# 
+# # Load your data here
+# counts_plus <- read.csv("combined_cancer_data4.csv")
+# 
+# # Remove rows with NA values in the annotated_sex column
+# counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+# 
+# # Define female genes
+# female_genes <- c("XIST")
+# 
+# # Define male genes
+# male_genes <- c("USP9Y", "UTY", "ZFY", "SRY", "AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "PRKY", "TMSB4Y", "RPS4Y1")
+# 
+# # Prepare data for plotting
+# counts_long <- counts_plus %>%
+#   pivot_longer(cols = c(female_genes, male_genes), names_to = "gene", values_to = "expression") %>%
+#   mutate(expression = log1p(as.numeric(expression)))
+# 
+# # Handle NA values
+# counts_long <- counts_long %>%
+#   mutate(expression = ifelse(is.na(expression), 0, expression))
+# 
+# # Custom colors for male and female points
+# custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+# 
+# # Get unique cancer types, genes, and annotated sexes
+# cancer_types <- unique(counts_long$CancerType)
+# genes <- unique(counts_long$gene)
+# sexes <- unique(counts_long$annotated_sex)
+# 
+# # Loop through each combination of cancer type, gene, and annotated sex
+# for (cancer_type in cancer_types) {
+#   for (gene in genes) {
+#     for (sex in sexes) {
+#       # Filter data for the current combination
+#       data_subset <- counts_long %>% filter(CancerType == cancer_type, gene == gene, annotated_sex == sex)
+#       
+#       # Skip if there is no data for this combination
+#       if (nrow(data_subset) == 0) next
+#       
+#       # Create plot
+#       p <- ggplot(data_subset, aes(x = gene, y = expression, fill = annotated_sex)) +
+#         geom_violin(trim = FALSE, width = 1.5) +
+#         scale_y_continuous(trans = "log10") +
+#         scale_fill_manual(values = custom_colors) +
+#         geom_point(aes(color = annotated_sex), size = 0.45) +
+#         scale_color_manual(values = custom_colors) +
+#         ylab("Expression (log-transformed)") +
+#         xlab("Genes") +
+#         ggtitle(paste("Gene Expression of", gene, "in", cancer_type, "-", sex)) +
+#         theme_light() +
+#         theme(
+#           axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+#           axis.text.y = element_text(size = 10),
+#           plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+#           strip.text = element_text(size = 10),
+#           legend.position = "bottom"
+#         )
+#       
+#       # Print the plot
+#       print(p)
+#       
+#       # Save the plot
+#       ggsave(paste0("gene_expression_violin_plot_", cancer_type, "_", gene, "_", sex, ".png"), p, width = 10, height = 8, units = "in", dpi = 300)
+#     }
+#   }
+# }
+
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Load your data here
+counts_plus <- read.csv("TCGA_RNA_data_all_modified_with_predictions.csv")
+
+# Remove rows with NA values in the annotated_sex column
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define cancer type labels
+cancer_type_labels <- c(
+  "LAML" = "LAML", # blood (Myeloid Leukemia)
+  "ACC" = "ACC",
+  "BLCA" = "BLCA",
+  "LGG" = "LGG",
+  "BRCA" = "BRCA",
+  "CESC" = "CESC",
+  "CHOL" = "CHOL",
+  "COAD" = "COAD",
+  "ESCA" = "ESCA",
+  "GBM" = "GBM",
+  "HNSC" = "HNSC",
+  "KICH" = "KICH",
+  "KIRC" = "KIRC",
+  "KIRP" = "KIRP",
+  "LIHC" = "LIHC",
+  "LUAD" = "LUAD",
+  "LUSC" = "LUSC",
+  "DLBC" = "DLBC",
+  "MESO" = "MESO",
+  "OV" = "OV",
+  "PAAD" = "PAAD",
+  "PCPG" = "PCPG",
+  "PRAD" = "PRAD",
+  "READ" = "READ",
+  "SARC" = "SARC",
+  "SKCM" = "SKCM",
+  "STAD" = "STAD",
+  "TGCT" = "TGCT",
+  "THCA" = "THCA",
+  "THYM" = "THYM",
+  "UCS" = "UCS",
+  "UCEC" = "UCEC",
+  "UVM" = "UVM"
+)
+
+# Define female genes
+female_genes <- c("XIST")
+
+# Define male genes
+male_genes <- c("USP9Y", "UTY", "ZFY", "SRY", "AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "PRKY", "TMSB4Y", "RPS4Y1")
+
+# Prepare data for plotting
+counts_long <- counts_plus %>%
+  pivot_longer(cols = c(female_genes, male_genes), names_to = "gene", values_to = "expression") %>%
+  mutate(expression = log1p(as.numeric(expression)))
+
+# Handle NA values
+counts_long <- counts_long %>%
+  mutate(expression = ifelse(is.na(expression), 0, expression))
+
+# Custom colors for male and female points
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Create plot
+p <- ggplot(counts_long, aes(x = gene, y = expression, fill = annotated_sex)) +
+  geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+  scale_y_continuous(trans = "log10") +
+  scale_fill_manual(values = custom_colors) +
+  geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+  scale_color_manual(values = custom_colors) +
+  ylab("Expression (log-transformed)") +
+  xlab("Genes") +
+  facet_wrap(~ gene, scales = "free_y") +
+  theme_light() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 10)
+  ) +
+  ggtitle("Gene Expression Violin Plots")
+
+
+# Print the plot
+print(p)
+
+# Save the plot
+ggsave("gene_expression_violin_plots_cancer_type.png", p, width = 20, height = 15, units = "in", dpi = 300)
+
+```
+
+
+
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Load your data here
+counts_plus <- read.csv("TCGA_RNA_data_all_modified_with_predictions.csv")
+
+# Remove rows with NA values in the annotated_sex column
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define cancer type labels
+cancer_type_labels <- c(
+  "LAML" = "LAML (Myeloid Leukemia)", # blood
+  "ACC" = "ACC (Adrenocortical)",
+  "BLCA" = "BLCA (Bladder Urothelial)",
+  "LGG" = "LGG (Brain Lower Grade Glioma)",
+  "BRCA" = "BRCA (Breast Invasive)",
+  "CESC" = "CESC (Cervical Squamous)",
+  "CHOL" = "CHOL (Cholangiocarcinoma)",
+  "COAD" = "COAD (Colon)",
+  "ESCA" = "ESCA (Esophageal)",
+  "GBM" = "GBM (Glioblastoma)",
+  "HNSC" = "HNSC (Head & Neck Squamous Cell)",
+  "KICH" = "KICH (Kidney Chromophobe)",
+  "KIRC" = "KIRC (Kidney Renal Clear cell)",
+  "KIRP" = "KIRP (Kidney Renal Papillary cell)",
+  "LIHC" = "LIHC (Liver Hepatocellular)",
+  "LUAD" = "LUAD (Lung Adenocarcinoma)",
+  "LUSC" = "LUSC (Lung Squamous Cell)",
+  "DLBC" = "DLBC (Lymphoid Neoplasm)",
+  "MESO" = "MESO (Mesothelioma)",
+  "OV" = "OV (Ovarian)",
+  "PAAD" = "PAAD (Pancreatic)",
+  "PCPG" = "PCPG (Pheochromocytoma & Paraganglioma)",
+  "PRAD" = "PRAD (Prostate)",
+  "READ" = "READ (Rectum)",
+  "SARC" = "SARC (Sarcoma)",
+  "SKCM" = "SKCM (Skin Cutaneous)",
+  "STAD" = "STAD (Stomach)",
+  "TGCT" = "TGCT (Testicular Germ Cell Tumor)",
+  "THCA" = "THCA (Thyroid gland)",
+  "THYM" = "THYM (Thymoma)",
+  "UCS" = "UCS (Uterine Carcinosarcoma)",
+  "UCEC" = "UCEC (Uterine Corpus Endometrial)",
+  "UVM" = "UVM (Uveal)"
+)
+
+# Define female genes
+female_genes <- c("XIST")
+
+# Define male genes
+male_genes <- c("DDX3Y")
+
+# Combine all genes
+all_genes <- c(female_genes, male_genes)
+
+# Initialize a dataframe to store results for all genes
+all_genes_data <- data.frame(RowID = counts_plus$rowname, 
+                             cancer_type = counts_plus$CancerType,
+                             annotated_sex = counts_plus$annotated_sex, 
+                             XIST_status = counts_plus$status_XIST, 
+                             Y_status = counts_plus$status_Y)
+
+# Custom colors for male and female points
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Function to create plots for a given gene
+create_gene_plot <- function(gene) {
+  gene_expression <- log1p(counts_plus[[gene]])
+  
+  # # Determine thresholds
+  # if (gene %in% female_genes) {
+  #   high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + 4.5 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+  #   low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + 3 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+  # } else {
+  #   high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + 4.5 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  #   low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + 3 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  # }
+  # 
+  # # Predicted sex
+  # predicted_sex <- if (gene %in% male_genes) {
+  #   ifelse(gene_expression >= high_threshold, "male",
+  #          ifelse(gene_expression <= low_threshold, "female", "cannot_predict"))
+  # } else {
+  #   ifelse(gene_expression >= high_threshold, "female",
+  #          ifelse(gene_expression <= low_threshold, "male", "cannot_predict"))
+  # }
+
+  # Prepare data for plotting
+  gene_data_for_plot <- data.frame(annotated_sex = counts_plus$annotated_sex, 
+                                   cancer_type = counts_plus$CancerType, 
+                                   expression = gene_expression)
+
+  # Calculate counts
+  counts <- gene_data_for_plot %>%
+    group_by(cancer_type, annotated_sex) %>%
+    summarize(count = n(), .groups = 'drop')
+
+  # Create plot
+  p <- ggplot(gene_data_for_plot, aes(x = annotated_sex, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+    scale_color_manual(values = custom_colors) +
+    ylab(paste0(gene, " Expression (log-transformed)")) +
+    xlab("Sex") +
+    ggtitle(paste("Gene Expression of", gene)) +
+    facet_wrap(~ cancer_type, scales = "free_y", ncol = 3, labeller = as_labeller(cancer_type_labels)) +
+    theme_light() +
+    theme(
+      axis.text.x = element_text(size = 8),
+      axis.text.y = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      strip.text = element_text(size = 10),
+      legend.position = "bottom"
+    ) +
+    geom_text(data = counts, aes(x = annotated_sex, y = 0.5, label = count), 
+              position = position_dodge(width = 0.75), vjust = -1.5, size = 6) 
+  # +
+  #   geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") +
+  #   geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue")
+  # 
+  # Print the plot
+  print(p)
+  
+  # Save the plot
+  ggsave(paste0("gene_expression_violin_plot_", gene, ".png"), p, width = 15, height = 26, units = "in", dpi = 300)
+
+  all_genes_data[[paste0(gene, "_log_expression")]] <- counts_plus[[gene]]
+  all_genes_data[[paste0(gene, "_predicted_sex")]] <- predicted_sex
+  all_genes_data[[paste0(gene, "_predicted_expression")]] <- ifelse(counts_plus[[gene]] >= high_threshold, "high_expression", ifelse(counts_plus[[gene]] <= low_threshold, "low_expression", "intermediate_expression"))
+}
+
+# Create plots for each gene
+lapply(all_genes, create_gene_plot)
+
+# Save the comprehensive results to a CSV file
+#write.csv(all_genes_data, "expression_data_all_genes_with_predicted_sex.csv", row.names = FALSE)
+
+
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Load your data here
+counts_plus <- read.csv("TCGA_RNA_data_all_modified_with_predictions.csv")
+
+# Remove rows with NA values in the annotated_sex column
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define cancer type labels
+cancer_type_labels <- c(
+  "LAML" = "LAML (Myeloid Leukemia)", # blood
+  "ACC" = "ACC (Adrenocortical)",
+  "BLCA" = "BLCA (Bladder Urothelial)",
+  "LGG" = "LGG (Brain Lower Grade Glioma)",
+  "BRCA" = "BRCA (Breast Invasive)",
+  "CESC" = "CESC (Cervical Squamous)",
+  "CHOL" = "CHOL (Cholangiocarcinoma)",
+  "COAD" = "COAD (Colon)",
+  "ESCA" = "ESCA (Esophageal)",
+  "GBM" = "GBM (Glioblastoma)",
+  "HNSC" = "HNSC (Head & Neck Squamous Cell)",
+  "KICH" = "KICH (Kidney Chromophobe)",
+  "KIRC" = "KIRC (Kidney Renal Clear cell)",
+  "KIRP" = "KIRP (Kidney Renal Papillary cell)",
+  "LIHC" = "LIHC (Liver Hepatocellular)",
+  "LUAD" = "LUAD (Lung Adenocarcinoma)",
+  "LUSC" = "LUSC (Lung Squamous Cell)",
+  "DLBC" = "DLBC (Lymphoid Neoplasm)",
+  "MESO" = "MESO (Mesothelioma)",
+  "OV" = "OV (Ovarian)",
+  "PAAD" = "PAAD (Pancreatic)",
+  "PCPG" = "PCPG (Pheochromocytoma & Paraganglioma)",
+  "PRAD" = "PRAD (Prostate)",
+  "READ" = "READ (Rectum)",
+  "SARC" = "SARC (Sarcoma)",
+  "SKCM" = "SKCM (Skin Cutaneous)",
+  "STAD" = "STAD (Stomach)",
+  "TGCT" = "TGCT (Testicular Germ Cell Tumor)",
+  "THCA" = "THCA (Thyroid gland)",
+  "THYM" = "THYM (Thymoma)",
+  "UCS" = "UCS (Uterine Carcinosarcoma)",
+  "UCEC" = "UCEC (Uterine Corpus Endometrial)",
+  "UVM" = "UVM (Uveal)"
+)
+
+# Define female genes
+female_genes <- c("XIST")
+
+# Define male genes
+male_genes <- c("USP9Y", "UTY", "ZFY", "SRY", "AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "PRKY", "TMSB4Y", "RPS4Y1")
+
+# Combine all genes
+all_genes <- c(female_genes, male_genes)
+
+# Initialize a dataframe to store results for all genes
+all_genes_data <- data.frame(RowID = counts_plus$rowname, 
+                             cancer_type = counts_plus$CancerType,
+                             annotated_sex = counts_plus$annotated_sex, 
+                             XIST_status = counts_plus$status_XIST, 
+                             Y_status = counts_plus$status_Y)
+
+# Custom colors for male and female points
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Function to create plots for a given gene
+create_gene_plot <- function(gene) {
+  gene_expression <- log1p(counts_plus[[gene]])
+  
+  # Determine thresholds
+  if (gene %in% female_genes) {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + 4.5 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + 3 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+  } else {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + 4.5 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + 3 * (sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  }
+
+  # Predicted sex
+  predicted_sex <- if (gene %in% male_genes) {
+    ifelse(gene_expression >= high_threshold, "male",
+           ifelse(gene_expression <= low_threshold, "female", "cannot_predict"))
+  } else {
+    ifelse(gene_expression >= high_threshold, "female",
+           ifelse(gene_expression <= low_threshold, "male", "cannot_predict"))
+  }
+
+  # Prepare data for plotting
+  gene_data_for_plot <- data.frame(annotated_sex = counts_plus$annotated_sex, 
+                                   cancer_type = counts_plus$CancerType, 
+                                   expression = gene_expression)
+
+  # Ensure all combinations of cancer type and sex are included in the counts
+  all_combinations <- expand.grid(cancer_type = unique(counts_plus$CancerType),
+                                  annotated_sex = unique(counts_plus$annotated_sex))
+  
+  # Calculate counts
+  counts <- gene_data_for_plot %>%
+    group_by(cancer_type, annotated_sex) %>%
+    summarize(count = n(), .groups = 'drop') %>%
+    right_join(all_combinations, by = c("cancer_type", "annotated_sex")) %>%
+    mutate(count = ifelse(is.na(count), 0, count))
+
+  # Create plot
+  p <- ggplot(gene_data_for_plot, aes(x = annotated_sex, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+    scale_color_manual(values = custom_colors) +
+    ylab(paste0(gene, " Expression (log-transformed)")) +
+    xlab("Sex") +
+    ggtitle(paste("Gene Expression of", gene)) +
+    facet_wrap(~ cancer_type, scales = "free_y", ncol = 3, labeller = as_labeller(cancer_type_labels)) +
+    theme_light() +
+    theme(
+      axis.text.x = element_text(size = 8),
+      axis.text.y = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      strip.text = element_text(size = 10),
+      legend.position = "bottom"
+    ) +
+    geom_text(data = counts, aes(x = annotated_sex, y = max(gene_data_for_plot$expression) * 0.9, label = count), 
+              position = position_dodge(width = 0.75), vjust = -0.5, size = 4) 
+  # +
+  #   geom_hline(yintercept = high_threshold, linetype="dashed", color = "maroon") 
+  # +
+  #   geom_hline(yintercept = low_threshold, linetype="dashed", color = "blue")
+  
+  # Print the plot
+  print(p)
+  
+  # Save the plot
+  ggsave(paste0("gene_expression_violin_plot_", gene, ".png"), p, width = 15, height = 26, units = "in", dpi = 300)
+
+  all_genes_data[[paste0(gene, "_log_expression")]] <- counts_plus[[gene]]
+  all_genes_data[[paste0(gene, "_predicted_sex")]] <- predicted_sex
+  all_genes_data[[paste0(gene, "_predicted_expression")]] <- ifelse(counts_plus[[gene]] >= high_threshold, "high_expression", ifelse(counts_plus[[gene]] <= low_threshold, "low_expression", "intermediate_expression"))
+}
+
+# Create plots for each gene
+lapply(all_genes, create_gene_plot)
+
+# Save the comprehensive results to a CSV file
+write.csv(all_genes_data, "expression_data_all_genes_with_predicted_sex.csv", row.names = FALSE)
+
+```
+```{r}
+# Remove rows with NA values in the annotated_sex column
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define female genes
+female_genes <- c("XIST")
+
+# Define male genes
+male_genes <- c("USP9Y", "UTY", "ZFY", "SRY", "AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "PRKY", "TMSB4Y", "RPS4Y1")
+
+# Combine all genes
+all_genes <- c(female_genes, male_genes)
+
+# Prepare data for plotting
+counts_long <- counts_plus %>%
+  pivot_longer(cols = all_genes, names_to = "gene", values_to = "expression") %>%
+  mutate(expression = log1p(as.numeric(expression)))
+
+# Handle NA values
+counts_long <- counts_long %>%
+  mutate(expression = ifelse(is.na(expression), 0, expression))
+
+# Custom colors for male and female points
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Function to create plots for a given gene
+create_gene_plot <- function(gene) {
+  # Filter data for the current gene
+  data_subset <- counts_long %>% filter(gene == gene)
+  
+  # Create plot
+  p <- ggplot(data_subset, aes(x = annotated_sex, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = custom_colors) +
+    scale_color_manual(values = custom_colors) +
+    ylab("Expression (log-transformed)") +
+    xlab("Sex") +
+    ggtitle(paste("Gene Expression of", gene)) +
+    facet_wrap(~ CancerType, scales = "free_y", ncol = 3) +
+    theme_light() +
+    theme(
+      axis.text.x = element_text(size = 8),
+      axis.text.y = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      strip.text = element_text(size = 10),
+      legend.position = "bottom"
+    )
+  
+  # Print the plot
+  print(p)
+  
+  # Save the plot
+  ggsave(paste0("gene_expression_violin_plot_", gene, ".png"), p, width = 15, height = 25, units = "in", dpi = 300)
+}
+
+# Create plots for each gene
+lapply(all_genes, create_gene_plot)
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Load your data here
+
+
+# Remove rows with NA values in the annotated_sex column
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define female genes
+female_genes <- c("XIST")
+
+# Define male genes
+male_genes <- c("DDX3Y")
+
+# Combine all genes
+all_genes <- c(female_genes, male_genes)
+
+# Prepare data for plotting
+counts_long <- counts_plus %>%
+  pivot_longer(cols = all_genes, names_to = "gene", values_to = "expression") %>%
+  mutate(expression = log1p(as.numeric(expression)))
+
+# Handle NA values
+counts_long <- counts_long %>%
+  mutate(expression = ifelse(is.na(expression), 0, expression))
+
+# Custom colors for male and female points
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Function to create plots for a given gene
+create_gene_plot <- function(gene) {
+  # Filter data for the current gene
+  data_subset <- counts_long %>% filter(gene == gene)
+  
+  # Calculate counts
+  counts <- data_subset %>%
+    group_by(CancerType, annotated_sex) %>%
+    summarize(count = n(), .groups = 'drop')
+  
+  # Create plot
+  p <- ggplot(data_subset, aes(x = annotated_sex, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = custom_colors) +
+    scale_color_manual(values = custom_colors) +
+    ylab("Expression (log-transformed)") +
+    xlab("Sex") +
+    ggtitle(paste("Gene Expression of", gene)) +
+    facet_wrap(~ CancerType, scales = "free_y", ncol = 3) +
+    theme_light() +
+    theme(
+      axis.text.x = element_text(size = 8),
+      axis.text.y = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      strip.text = element_text(size = 10),
+      legend.position = "bottom"
+    ) +
+    geom_text(data = counts, aes(x = annotated_sex, y = 0.5, label = count), 
+              position = position_dodge(width = 0.75), vjust = -1.5, size = 3)
+  
+  # Print the plot
+  print(p)
+  
+  # Save the plot
+  ggsave(paste0("gene_expression_violin_plot_v3", gene, ".png"), p, width = 15, height = 25, units = "in", dpi = 300)
+}
+
+# Create plots for each gene
+lapply(all_genes, create_gene_plot)
+
+```
+
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Load your data here
+counts_plus <- read.csv("combined_cancer_data4.csv")
+
+# Removed rows with NA values in the annotated_sex column in combined_cancer_data2
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define cancer type labels
+cancer_type_labels <- c(
+  "LAML" = "LAML (Acute Myeloid Leukemia)", 
+  "ACC" = "ACC (Adrenocortical Carcinoma)",
+  "BLCA" = "BLCA (Bladder Urothelial Carcinoma)",
+  "LGG" = "LGG (Brain Lower Grade Glioma)",
+  "BRCA" = "BRCA (Breast Invasive Carcinoma)",
+  "CESC" = "CESC (Cervical Squamous cell Carcinoma and Endocervical Adenocarcinoma)",
+  "CHOL" = "CHOL (Cholangiocarcinoma)",
+  "COAD" = "COAD (Colon Adenocarcinoma)",
+  "ESCA" = "ESCA (Esophageal Adenocarcinoma)",
+  "GBM" = "GBM (Glioblastoma)",
+  "HNSC" = "HNSC (Head and Neck Squamous Cell Carcinoma)",
+  "KICH" = "KICH (Kidney Chromophobe)",
+  "KIRC" = "KIRC (Kidney Renal Clear cell Carcinoma)",
+  "KIRP" = "KIRP (Kidney Renal Papillary cell Carcinoma)",
+  "LIHC" = "LIHC (Liver Hepatocellular Carcinoma)",
+  "LUAD" = "LUAD (Lung Adenocarcinoma)",
+  "LUSC" = "LUSC (Lung Squamous Cell Carcinoma)",
+  "DLBC" = "DLBC (Lymphoid Neoplasm Diffuse Large B-cell Lymphoma)",
+  "MESO" = "MESO (Mesothelioma)",
+  "OV" = "OV (Ovarian serous cystadenocarcinoma)",
+  "PAAD" = "PAAD (Pancreatic Adenocarcinoma)",
+  "PCPG" = "PCPG (Pheochromocytoma and Paraganglioma)",
+  "PRAD" = "PRAD (Prostate Adenocarcinoma)",
+  "READ" = "READ (Rectum Adenocarcinoma)",
+  "SARC" = "SARC (Sarcoma)",
+  "SKCM" = "SKCM (Skin Cutaneous Melanoma)",
+  "STAD" = "STAD (Stomach Adenocarcinoma)",
+  "TGCT" = "TGCT (Testicular Germ Cell Tumor)",
+  "THCA" = "THCA (Thyroid gland)",
+  "THYM" = "THYM (Thymoma)",
+  "UCS" = "UCS (Uterine Carcinosarcoma)",
+  "UCEC" = "UCEC (Uterine Corpus Endometrial Carcinoma)",
+  "UVM" = "UVM (Uveal Melanoma)"
+)
+
+# Define custom colors for male and females for points  
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Create plots for females
+for (gene in c("XIST", "DDX3Y")) {
+  female_data <- counts_plus %>% filter(annotated_sex == "female")
+  gene_expression <- log1p(female_data[[gene]]) 
+  
+  gene_data_for_plot <- data.frame(annotated_sex = female_data$annotated_sex, 
+                                   cancer_type = female_data$CancerType, 
+                                   expression = gene_expression)
+  
+  p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 1.5, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey")) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) + 
+    scale_color_manual(values = custom_colors) +
+    scale_x_discrete(labels = cancer_type_labels) +
+    ylab(paste0(gene, " Expression (log10(TPM))")) +  
+    theme_light() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+          axis.text.y = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+  
+  print(p)
+
+  violin_fname <- paste("Log_Violin_Female", gene, ".png", sep = "_")
+  ggsave(violin_fname, p, width = 15, height = 7, units = "in", dpi = 300)
+}
+
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+library(readr)
+library(ComplexHeatmap)
+library(circlize)
+
+#all_genes <- read_csv("combined_cancer_data2.csv")
+
+
+# Define the gene names and locations
+
+# Create a dataframe from the vectors
+gene_locations <- read_csv("gene_locations.csv")
+# Using base R to remove rows
+#gene_locations <- gene_locations[!gene_locations$gene_name %in% c("TGIF2LY", "PCDH11Y", "RPS4Y2", "AMELY"), ]
+
+# Print the updated data frame to verify changes
+print(gene_locations)
+```
+```{r}
+TCGA_RNA_data_all_modified_with_predictions <- read_csv("TCGA_RNA_data_all_modified_with_predictions.csv")
+
+#order data based on the expression levels of the specified genes
+heat_data <- TCGA_RNA_data_all_modified_with_predictions[order(TCGA_RNA_data_all_modified_with_predictions$XIST_log_expression,
+                             TCGA_RNA_data_all_modified_with_predictions$USP9Y_log_expression,
+                             TCGA_RNA_data_all_modified_with_predictions$UTY_log_expression,
+                             TCGA_RNA_data_all_modified_with_predictions$ZFY_log_expression,
+                             TCGA_RNA_data_all_modified_with_predictions$DDX3Y_log_expression,
+                             TCGA_RNA_data_all_modified_with_predictions$KDM5D_log_expression),]
+# Filter out everything but the log columns for the heat map matrix
+heat_matrix <- as.matrix(heat_data[, grepl("_log", colnames(heat_data))])
+
+# Transpose the matrix so the genes are on the Y-axis and each cell line is vertical on the X-axis
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log" from column names to display gene only in the heat map
+row.names(heat_matrix) <- gsub("_predicted_expression", "", colnames(heat_data)[grepl("_log_expression", colnames(heat_data))])
+colnames(heat_matrix) <- NULL
+
+# Split the columns based on reported sex
+reported_sex <- heat_data$sex
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Apply a log10 transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log10(heat_matrix)
+
+# Choose a color palette with a continuous gradient
+my_palette <- colorRampPalette(c("royalblue3", "white", "red"))(100)
+
+# Create the heatmap using the improved palette
+gene_heatmap <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Log10 Expression (TPM)",
+  col = my_palette,
+  row_names_side = "left",
+  cluster_rows = FALSE,
+  row_split = locate_gene,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = reported_sex,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmap)
+ png("TCGA_combined_heat_map.png", width = 15, height = 10, units = "cm", res = 300)
+#
+
+
+```
+
+```{r}
+gene_locations <- read_csv("gene_locations.csv")
+# create a variable for specific genes
+chosen_genes <- list("XIST","ZFY", "USP9Y","DDX3Y","UTY","KDM5D", "EIF1AY") # removed ,"TMSB4Y"
+
+# filter data to only include genes of interest
+selected_columns <- c("sex")
+
+# loop through chosen_genes to add corresponding column names
+for (i in chosen_genes) {
+  selected_columns <- c(selected_columns, grep(paste(i), colnames(heat_data), value = TRUE))
+}
+
+# subset heat_data using the selected column names
+heat_refined <- heat_data[, selected_columns]
+
+# the heat map is created with a matrix, so filter out everything, but the log columns
+refined_matrix <- as.matrix(heat_refined
+                         [ , c(colnames(heat_refined)[grepl("_log", colnames(heat_refined))])])
+# transpose the matrix, so the genes are on the Y-axis and each cell line is vertical on the X-axis
+refined_matrix <- t(refined_matrix)
+
+# remove "_log" from column names to display gene only in heat map
+row.names(refined_matrix) <- c(gsub("_log_expression", "",
+                       colnames(heat_refined)[grepl("_log_expression", colnames(heat_refined))]))
+colnames(refined_matrix) <- NULL
+
+# there are less cell lines/genes, so redo column and row splits
+refined_sex <- heat_refined$sex
+
+# Subset gene_locations based on whether gene_name is in chosen_genes
+refined_locations <- gene_locations[gene_locations$gene_name %in% chosen_genes, ]
+refined_locate <- refined_locations$location
+
+
+
+refined_matrix[refined_matrix == 0] <- 0.1
+refined_matrix <- log10(refined_matrix)
+
+refined_heatmap <- suppressMessages(Heatmap(refined_matrix,
+                         name = "Log Expression",
+                         col = my_palette,
+                         row_names_side = "left",
+                         cluster_rows = FALSE,
+                         row_split = refined_locate,
+                         column_title_side = "bottom",
+                         cluster_columns = FALSE,
+                         show_column_dend = FALSE,
+                         column_split = reported_sex,
+                         column_gap = unit(3,"mm"),
+                         # Additional parameters to enhance visualization
+                         row_dend_width = unit(2, "cm"),
+                         column_dend_height = unit(2, "cm"),
+                         row_names_gp = gpar(fontsize = 10),
+                         column_names_gp = gpar(fontsize = 10)
+                         ))
+png("TCGA_refined_heat_map.png", width = 15, height = 10, units = "cm", res = 1080)
+print(refined_heatmap)
+refined_heatmap
+#dev.off()
+
+```
+
+```{r}
+
+# filter by reported sex - female
+female_data <- TCGA_RNA_data_all_modified_with_predictions %>%
+  filter(sex %in% "female")
+# filter by reported sex - male
+
+male_data <- TCGA_RNA_data_all_modified_with_predictions %>%
+  filter(sex %in% "male")
+# filter by reported sex - unknown sex
+
+female_data
+# NA_data <- gene_data %>%
+#   filter(reported_sex %in% "NA")
+```
+
+```{r}
+# counts the number of cell lines from females
+total_females <- nrow(female_data)
+cat("The total cell lines reported from females is", total_females)
+```
+```{r}
+## Females
+# Then create your 'chrY_gene_expression_category' and proceed
+# Ensure 'XIST_predicted_expression' is included in the columns
+chrY_gene_expression_category <- c(
+                                   "ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+
+# Proceed with filtering as before
+female_highXIST_lowY <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "high_expression" &
+         all(c_across(all_of(chrY_gene_expression_category)) == "low_expression")) %>%
+  nrow()
+
+# intermediate XIST and low chrY expression [XX]
+female_interXIST_lowY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "intermediate_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) == "low_expression")) %>%
+nrow()
+# low XIST and chrY expression [XX or OX]
+female_lowXIST_lowY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "low_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) == "low_expression")) %>%
+nrow()
+
+# at least one instance of high chrY gene expression
+# low XIST [XY or OXY]
+female_lowXIST_highY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "low_expression" &
+any(c_across(all_of(chrY_gene_expression_category)) == "high_expression")) %>%
+nrow()
+# intermediate XIST [XXY]
+female_interXIST_highY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "intermediate_expression" &
+any(c_across(all_of(chrY_gene_expression_category)) == "high_expression")) %>%
+nrow()
+# high XIST [XXY]
+female_highXIST_highY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "high_expression" &
+any(c_across(all_of(chrY_gene_expression_category)) == "high_expression")) %>%
+nrow()
+
+# no high chrY expression, but not all low (there's an intermediate)
+# low XIST
+female_lowXIST_interY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "low_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression")) %>%
+nrow()
+
+# intermediate XIST
+female_interXIST_interY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "intermediate_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression")) %>%
+nrow()
+
+# high XIST
+female_highXIST_interY <- female_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "high_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression")) %>%
+nrow()
+female_table_titles <- c("High XIST and low Y chromosome",
+"Intermediate XIST and low Y chromosome",
+"Low XIST and low Y chromosome",
+"Low XIST and high Y chromosome",
+"Intermediate XIST and high Y chromosome",
+"High XIST and high Y chromosome",
+"Low XIST and intermediate Y chromosome",
+"Intermediate XIST and intermediate Y chromosome",
+"High XIST and intermediate Y chromosome")
+
+sex_chrom_complements <- c("XX", "XX", "XX or X0",
+"XY","XXY","XXY",
+"cannot determine", "cannot determine", "cannot determine")
+
+female_table <- data.frame(
+Expression = female_table_titles,
+Count = c(female_highXIST_lowY, female_interXIST_lowY, female_lowXIST_lowY,
+female_lowXIST_highY, female_interXIST_highY, female_highXIST_highY,
+female_lowXIST_interY, female_interXIST_interY, female_highXIST_interY),
+
+Complements = sex_chrom_complements
+)
+
+female_table
+```
+
+```{r}
+
+```
+
+```{r}
+# Create a variable with column names
+chrY_gene_expression_category <- c( "ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+# high expression of XIST and low expression of all chrY genes [XX]
+male_highXIST_lowY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "high_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) == "low_expression")) %>%
+nrow()
+# intermediate XIST and low chrY expression [XX]
+male_interXIST_lowY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "intermediate_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) == "low_expression")) %>%
+nrow()
+# low XIST and chrY expression [XX or OX]
+male_lowXIST_lowY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "low_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) == "low_expression")) %>%
+nrow()
+
+# at least one instance of high chrY gene expression
+# low XIST [XY or OXY]
+male_lowXIST_highY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "low_expression" &
+any(c_across(all_of(chrY_gene_expression_category)) == "high_expression")) %>%
+nrow()
+# intermediate XIST [XXY]
+male_interXIST_highY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "intermediate_expression" &
+any(c_across(all_of(chrY_gene_expression_category)) == "high_expression")) %>%
+nrow()
+# high XIST [XXY]
+male_highXIST_highY <- male_data %>%
+
+rowwise() %>%
+filter(XIST_predicted_expression == "high_expression" &
+any(c_across(all_of(chrY_gene_expression_category)) == "high_expression")) %>%
+nrow()
+
+# no high chrY expression, but not all low (there's an intermediate)
+# low XIST
+male_lowXIST_interY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "low_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression")) %>%
+nrow()
+# intermediate XIST
+male_interXIST_interY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "intermediate_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression")) %>%
+nrow()
+# high XIST
+male_highXIST_interY <- male_data %>%
+rowwise() %>%
+filter(XIST_predicted_expression == "high_expression" &
+all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression")) %>%
+nrow()
+male_table_titles <- c("High XIST and low Y chromosome",
+
+"Intermediate XIST and low Y chromosome",
+"Low XIST and low Y chromosome",
+"Low XIST and high Y chromosome",
+"Intermediate XIST and high Y chromosome",
+"High XIST and high Y chromosome",
+"Low XIST and intermediate Y chromosome",
+"Intermediate XIST and intermediate Y chromosome",
+"High XIST and intermediate Y chromosome")
+
+sex_chrom_complements <- c("XX", "XX", "XX or X0",
+"XY","XXY","XXY",
+"cannot determine", "cannot determine", "cannot determine")
+
+male_table <- data.frame(
+Expression = male_table_titles,
+Count = c(male_highXIST_lowY, male_interXIST_lowY, male_lowXIST_lowY,
+male_lowXIST_highY, male_interXIST_highY, male_highXIST_highY,
+male_lowXIST_interY, male_interXIST_interY, male_highXIST_interY),
+
+Complements = sex_chrom_complements
+)
+```
+
+```{r}
+
+# add a column for each table to show where the data comes from
+female_table <- female_table %>%
+mutate(Sex = "Female")
+male_table <- male_table %>%
+mutate(Sex = "Male")
+# unknown_table <- unknown_table %>%
+# mutate(Sex = "Unknown")
+# # combine the tables
+combined_table <- bind_rows(female_table, male_table)
+print(combined_table, row.names = FALSE)
+
+write.csv(combined_table, "TCGA_combined_sex_chrom_complements.csv")
+```
+
+```{r}
+sex_chromosome_table = read.csv("TCGA_combined_sex_chrom_complements.csv")
+# filter by reported sex - female
+female_data <- sex_chromosome_table[1:9, ]
+female_data$Percent <- round(female_data$Count/sum(female_data$Count) *
+100, 2)
+# filter by reported sex - male
+male_data <- sex_chromosome_table[10:18, ]
+male_data$Percent <- round(male_data$Count/sum(male_data$Count) *
+100, 2)
+#filter by reported sex - not available
+unknown_data <- sex_chromosome_table[19:27, ]
+unknown_data$Percent <- round(unknown_data$Count/sum(unknown_data$Count) *
+100, 2)
+
+sex_chromosome_table
+#unknown_data$Pie_Postion <- order(desc(unknown_data$Percent))
+# unknown_data <- unknown_data %>% count(Expression) %>%
+# arrange(desc(Percent)) %>% mutate()))
+
+
+
+```
+
+
+```{r}
+
+library(ComplexHeatmap)
+library(circlize)
+library(dplyr)
+library(readr)
+
+# Load gene locations
+gene_locations <- read_csv("gene_locations.csv")
+
+# Create a list of specific genes
+chosen_genes <- c("XIST", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_log_expression",
+                                   "USP9Y_log_expression",
+                                   "DDX3Y_log_expression",
+                                   "UTY_log_expression",
+                                   "KDM5D_log_expression",
+                                   "EIF1AY_log_expression")
+
+# Filter by reported sex - female
+female_data <- counts_plus %>% filter(sex == "female")
+
+# Subset for female samples with low XIST and high Y expression
+female_lowXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "low_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Subset for female samples with high XIST and high Y expression
+female_highXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "high_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Combine the subsets
+filtered_samples <- bind_rows(female_lowXIST_highY_samples, female_highXIST_highY_samples)
+
+# Select the relevant columns for the heatmap
+selected_columns <- c("sex", sapply(chosen_genes, function(gene) paste0(gene, "_log_expression")))
+filtered_data <- filtered_samples[, selected_columns]
+
+# Ensure no NA values in the filtered data
+filtered_data <- na.omit(filtered_data)
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_data[, -1]) # Remove the first column (annotated_sex)
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Apply a log transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log10(heat_matrix)
+
+# Define the color palette for log-transformed values
+my_palette <- colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmapA <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Log Expression",
+  col = my_palette,
+  row_names_side = "left",
+  cluster_rows = FALSE,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = filtered_samples$sex,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmapA)
+
+
+```
+```{r}
+ # Define the chosen genes
+chosen_genes <- c("XIST", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY", "TMSB4Y")
+
+# Initialize columns for log-transformed expression and predicted expression
+for (gene in chosen_genes) {
+  counts_plus[[paste0(gene, "_log_expression")]] <- log1p(counts_plus[[gene]])
+  
+  if (gene == "XIST") {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + (3 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + (1 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+  } else {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + (3* sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + (1 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  }
+  
+  counts_plus[[paste0(gene, "_predicted_expression")]] <- ifelse(
+    counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "high_expression",
+    ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "low_expression", "intermediate_expression")
+  )
+}
+```
+
+
+
+```{r}
+
+# # ---------------heatmap A---------------
+# #19 reported female samples with low XIST and high Y
+# #4 reported female samples with high XIST and high Y
+#
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+
+# Filter by reported sex - female
+female_data <- counts_plus %>% filter(sex == "female")
+
+# Subset for female samples with low XIST and high Y expression
+female_lowXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "low_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Subset for female samples with high XIST and high Y expression
+female_highXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "high_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Combine the subsets
+filtered_samples <- bind_rows(female_lowXIST_highY_samples, female_highXIST_highY_samples)
+
+# Select the relevant columns
+selected_columns <- c("sex", sapply(chosen_genes, function(gene) paste0(gene, "_log_expression")))
+filtered_data <- filtered_samples[, selected_columns]
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_data[, -1]) # Remove the first column (annotated_sex)
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Apply a log10 transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log(heat_matrix)
+
+# Define the color palette for log10-transformed values
+my_palette <- colorRamp2(c(-2,0, 2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmapA <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Expression Levels",
+  col = my_palette,
+  row_names_side = "left",
+  cluster_rows = FALSE,
+  # row_split = locate_gene,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = filtered_samples$annotated_sex,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmapA)
+```
+
+```{r}
+library(ComplexHeatmap)
+library(circlize)
+library(dplyr)
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_log_expression",
+                                   "USP9Y_log_expression",
+                                   "DDX3Y_log_expression",
+                                   "UTY_log_expression",
+                                   "KDM5D_log_expression",
+                                   "EIF1AY_log_expression")
+
+# Filter by reported sex - female
+female_data <- counts_plus %>% filter(annotated_sex == "female")
+
+# Subset for female samples with low XIST and high Y expression
+female_lowXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "low_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Subset for female samples with high XIST and high Y expression
+female_highXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "high_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Combine the subsets
+filtered_samples <- bind_rows(female_lowXIST_highY_samples, female_highXIST_highY_samples)
+
+# Select the relevant columns for the heatmap
+selected_columns <- c("annotated_sex", chrY_gene_expression_category, "XIST_log_expression")
+filtered_data <- filtered_samples[, selected_columns]
+
+# Ensure no NA values in the filtered data
+filtered_data <- na.omit(filtered_data)
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_data[, -1]) # Remove the first column (annotated_sex)
+
+# Check if heat_matrix is not empty
+if (nrow(heat_matrix) == 0) {
+  stop("Heatmap matrix is empty after filtering.")
+}
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Apply a log transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log(heat_matrix)
+
+# Define the color palette for log-transformed values
+my_palette <- colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmapA <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Expression Levels",
+  col = my_palette,
+  row_names_side = "left",
+  cluster_rows = FALSE,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = filtered_samples$annotated_sex,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmapA)
+
+
+```
+
+```{r}
+# Filter by reported sex - female
+female_data <- all_genes_data %>%
+  filter(annotated_sex == "female")
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+
+# Subset for female samples with low XIST and high Y expression
+female_lowXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "low_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Subset for female samples with high XIST and high Y expression
+female_highXIST_highY_samples <- female_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "high_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Combine the subsets
+filtered_samples <- bind_rows(female_lowXIST_highY_samples, female_highXIST_highY_samples)
+
+# Select the relevant columns
+selected_columns <- c("annotated_sex", sapply(chosen_genes, function(gene) paste0(gene, "_log_expression")))
+filtered_data <- filtered_samples[, selected_columns]
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_data[, -1]) # Remove the first column (annotated_sex)
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Apply a log10 transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log(heat_matrix)
+
+# Define the color palette for log10-transformed values
+my_palette <- colorRamp2(c(-2, 0,2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmap <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Log Expression ",
+  col = my_palette,
+  row_names_side = "left",
+  cluster_rows = FALSE,
+  # row_split = locate_gene,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = filtered_samples$annotated_sex,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmap)
+```
+
+```{r}
+# Filter by reported sex - male
+male_data <- all_genes_data %>%
+  filter(annotated_sex == "male")
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+
+# #------------heatmap B -------------------
+# # reported male samples with high XIST and low Y
+# # reported male sample with intermediate XIST and low Y
+
+males_highXIST_lowY <- male_data %>%rowwise()%>%
+  filter( XIST_predicted_expression == "high_expression" &
+         all(c_across(all_of(chrY_gene_expression_category)) == "low_expression"))
+
+males_interXIST_lowY <- male_data %>%rowwise()%>%
+  filter( XIST_predicted_expression == "intermediate_expression" &
+         all(c_across(all_of(chrY_gene_expression_category)) == "low_expression"))
+
+filtered_samples_lowY <- bind_rows(males_highXIST_lowY, males_interXIST_lowY)
+
+# Select the relevant columns
+selected_columns <- c("annotated_sex", sapply(chosen_genes, function(gene) paste0(gene, "_log_expression")))
+
+filtered_samples_lowY <- filtered_samples_lowY[, selected_columns]
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_samples_lowY[, -1]) # Remove the first column (annotated_sex)
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Apply a log10 transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log10(heat_matrix)
+
+# Define the color palette for log10-transformed values
+my_palette <- colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmapB <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Log Expression",
+  col = my_palette,
+  row_names_side = "left",
+  cluster_rows = FALSE,
+  row_split = locate_gene,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = filtered_samples_lowY$annotated_sex,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmapB)
+```
+```{r}
+
+```
+
+
+
+```{r}
+```
+
+```{r}
+# Define the chosen genes
+chosen_genes <- c("XIST", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY", "TMSB4Y")
+
+# Initialize columns for log-transformed expression and predicted expression
+for (gene in chosen_genes) {
+  counts_plus[[paste0(gene, "_log_expression")]] <- log1p(counts_plus[[gene]])
+  
+  if (gene == "XIST") {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + (4.5 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE) + (3 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'male'], na.rm = TRUE))
+  } else {
+    high_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + (4.5 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+    low_threshold <- mean(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE) + (4 * sd(counts_plus[[gene]][counts_plus$annotated_sex == 'female'], na.rm = TRUE))
+  }
+  
+  counts_plus[[paste0(gene, "_predicted_expression")]] <- ifelse(
+    counts_plus[[paste0(gene, "_log_expression")]] >= high_threshold, "high_expression",
+    ifelse(counts_plus[[paste0(gene, "_log_expression")]] <= low_threshold, "low_expression", "intermediate_expression")
+  )
+}
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(ComplexHeatmap)
+library(circlize)
+# #-------------heatmap C---------------------------
+# # reported males that are low XIST and intermediate Y 
+# 
+# Reported males that are low XIST and intermediate Y
+# Subset for male samples with low XIST and intermediate Y expression
+# Load your data here
+# counts_plus <- read.csv("combined_cancer_data.csv")
+
+# Remove rows with NA values in the annotated_sex column in combined_cancer_data2
+counts_plus <- counts_plus %>% filter(!is.na(annotated_sex))
+
+# Define the chosen genes
+chosen_genes <- c("XIST", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY", "TMSB4Y")
+
+
+
+# Filter by reported sex - male
+male_data <- all_genes_data %>% filter(annotated_sex == "male")
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+
+# Subset for male samples with low XIST and intermediate Y expression
+males_lowXIST_interY <- male_data %>%
+  rowwise() %>%
+  filter(XIST_predicted_expression == "low_expression" &
+         all(c_across(all_of(chrY_gene_expression_category)) != "high_expression") &
+         any(c_across(all_of(chrY_gene_expression_category)) == "intermediate_expression"))
+
+# Select the relevant columns
+selected_columns <- c("annotated_sex", sapply(chosen_genes, function(gene) paste0(gene, "_log_expression")))
+filtered_samples_interY <- males_lowXIST_interY[, selected_columns]
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_samples_interY[, -1]) # Remove the first column (annotated_sex)
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+
+gene_names <- row.names(heat_matrix)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Ensure column_split is correctly specified
+column_split <- filtered_samples_interY$annotated_sex
+if (length(column_split) != ncol(heat_matrix)) {
+  stop("The length of `column_split` does not match the number of columns in `heat_matrix`.")
+}
+
+# Define the color palette for log10-transformed values
+my_palette <- colorRamp2(c(-2,0, 2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmapC <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Log10 Expression (TPM)",
+  col = my_palette,
+  # row_names_side = "left",
+  cluster_rows = FALSE,
+  row_split = locate_gene,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = column_split,
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmapC)
+
+
+```
+
+```{r}
+
+```
+
+
+
+
+```{r}
+# Filter by reported sex - male
+male_data <- all_genes_data %>%
+  filter(annotated_sex == "male")
+
+# Define the list of chrY genes for filtering
+chrY_gene_expression_category <- c("ZFY_predicted_expression",
+                                   "USP9Y_predicted_expression",
+                                   "DDX3Y_predicted_expression",
+                                   "UTY_predicted_expression",
+                                   "KDM5D_predicted_expression",
+                                   "EIF1AY_predicted_expression")
+
+# #---------------heatmap D-------------------------
+# # 45 reported males that are high XIST and low Y
+# # 17 reported males that are intermediate XIST And high Y
+
+# 45 reported males that are high XIST and low Y
+males_highXIST_lowY <- male_data %>%rowwise() %>%
+  filter( XIST_predicted_expression == "high_expression" &
+         all(c_across(all_of(chrY_gene_expression_category)) == "low_expression"))
+# 17 reported males that are intermediate XIST and high Y
+males_interXIST_highY <- male_data %>%rowwise() %>%
+  filter( XIST_predicted_expression == "intermediate_expression" &
+         any(c_across(all_of(chrY_gene_expression_category)) == "high_expression"))
+
+# Combine the subsets
+filtered_samples_lowY_highY <- bind_rows(males_highXIST_lowY, males_interXIST_highY)
+
+# Select the relevant columns
+selected_columns <- c("annotated_sex", sapply(chosen_genes, function(gene) paste0(gene, "_log_expression")))
+filtered_samples_lowY_highY <- filtered_samples_lowY_highY[, selected_columns]
+
+# Create the heatmap matrix
+heat_matrix <- as.matrix(filtered_samples_lowY_highY[, -1]) # Remove the first column (annotated_sex)
+
+# Ensure all values in heat_matrix are numeric
+heat_matrix <- apply(heat_matrix, 2, as.numeric)
+
+# Transpose the matrix
+heat_matrix <- t(heat_matrix)
+
+# Remove "_log_expression" from row names
+row.names(heat_matrix) <- gsub("_log_expression", "", row.names(heat_matrix))
+colnames(heat_matrix) <- NULL
+
+# Ensure gene_locations match the row names of the heat matrix
+gene_names <- row.names(heat_matrix)
+gene_locations <- data.frame(
+  gene_name = c("XIST", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY", "TMSB4Y"),
+  location = c("X", "Yp", "Yp", "Yp", "Yq", "Yq", "Yq", "Yq")
+)
+gene_locations_filtered <- gene_locations %>% filter(gene_name %in% gene_names)
+
+# Ensure that gene_locations are in the same order as the rows in heat_matrix
+locate_gene <- gene_locations_filtered$location[match(gene_names, gene_locations_filtered$gene_name)]
+
+# Ensure locate_gene has the same length as the number of rows in heat_matrix
+if (length(locate_gene) != nrow(heat_matrix)) {
+  stop("The length of `locate_gene` does not match the number of rows in `heat_matrix`.")
+}
+
+# Ensure column_split is correctly specified
+column_split <- filtered_samples_lowY_highY$annotated_sex
+if (length(column_split) != ncol(heat_matrix)) {
+  stop("The length of `column_split` does not match the number of columns in `heat_matrix`.")
+}
+
+# Apply a log10 transformation
+heat_matrix[heat_matrix == 0] <- 0.01
+heat_matrix <- log10(heat_matrix)
+
+# Define the color palette for log10-transformed values
+my_palette <- colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+
+# Create the heatmap using the improved palette
+gene_heatmapD <- suppressMessages(Heatmap(
+  heat_matrix,
+  name = "Log10 Expression (TPM)",
+  col = my_palette,
+ row_names_side = "right",
+  cluster_rows = FALSE,
+  # row_split = locate_gene,
+  column_title_side = "bottom",
+  cluster_columns = FALSE,
+  show_column_dend = FALSE,
+  column_split = factor(column_split, levels = unique(column_split)), # ensure it's a factor
+  column_gap = unit(3, "mm"),
+  row_dend_width = unit(2, "cm"),
+  column_dend_height = unit(2, "cm"),
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+))
+
+# Draw the heatmap
+draw(gene_heatmapD)
+```
+
+```{r}
+
+```
+
+
+
+

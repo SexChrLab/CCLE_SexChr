@@ -4,10 +4,7 @@ library(ggplot2)
 library(plotly)
 
 # List of TCGA studies to analyze
-cancer_types <- c("LAML", "ACC", "BLCA", "LGG", "BRCA", "CESC", "CHOL", "COAD", "ESCA", 
-                  "GBM", "HNSC", "KICH", "KIRC", "KIRP", "LIHC", "LUAD", "LUSC", "DLBC", 
-                  "MESO", "OV", "PAAD", "PCPG", "PRAD", "READ", "SARC", "SKCM", "STAD", 
-                  "TGCT", "THCA", "THYM", "UCS", "UCEC", "UVM")
+cancer_types <- c("LIHC")
 
 # Set directories
 working_dir <- 'C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts'
@@ -28,23 +25,38 @@ xchr_gnames <- c("XIST", "AR")
 
 for (study in cancer_types) {
   # Define file paths
+
   counts_fname <- paste("TCGA", study, "TPM.tsv", sep = "-")
   meta_fname <- paste("TCGA", study, "META.tsv", sep = "-")
   
   counts_path <- paste(filepath, counts_fname, sep = "")
   meta_path <- paste(filepath, meta_fname, sep = "")
   
-  # Check if the files exist
-  if (!file.exists(counts_path) | !file.exists(meta_path)) {
-    cat("File not found for study:", study, "\n")
-    next
-  }
-  
   # Read in data
   counts <- read.delim(counts_path, row.names = 1)
-  metadf <- read.delim(meta_path, row.names = 1)
   
-  # Modify row id's in metadf to correspond to similar format in counts
+  # Read the metadata without setting row names first
+  metadf <- read.delim(meta_path)
+  
+  # Check if 'sample_id' is unique and use it as row names
+  if(length(unique(metadf$sample_id)) == nrow(metadf)){
+    rownames(metadf) <- metadf$sample_id
+  } else {
+    stop("Sample IDs are not unique! Check the 'sample_id' column for duplicates.")
+  }
+  
+  # Since sample_id is now the row name, we don't need it as a column
+  metadf <- metadf[, -which(names(metadf) == "sample_id")]
+  
+  # Check if sample_type column exists in metadf
+  if ("sample_type" %in% colnames(metadf)) {
+    # Replace NAs with empty string if sample_type exists
+    metadf$sample_type[is.na(metadf$sample_type)] <- ""
+  } else {
+    # Create sample_type column with empty strings if it doesn't exist
+    metadf$sample_type <- ""
+  }
+  # Modify row ids in metadf to correspond to similar format in counts
   meta_ids <- rownames(metadf)
   meta_ids <- gsub("[-]", ".", meta_ids)
   rownames(metadf) <- meta_ids
@@ -123,18 +135,18 @@ for (study in cancer_types) {
   ################################################
   
   # Create the sex_check dataframe
-  sex_check <- data.frame(matrix("no", length(c_uuid), 12), row.names = c_uuid)
+  sex_check <- data.frame(matrix("no", length(c_uuid), 7), row.names = c_uuid)
   colnames(sex_check) <- c("status_XIST", "status_Y",
-                           "annotated_sex", "survival_status", "time_to_status", "age",
-                           "Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood", "sample_types")
+                           "annotated_sex", "survival_status", "time_to_status", "age_index",
+                            "sample_type")
   
   # Create the counts_plus dataframe
-  dummy_df <- data.frame(matrix("no", length(id_list), 12))
+  dummy_df <- data.frame(matrix("no", length(id_list), 7))
   counts_plus <- data.frame(c(new_counts, dummy_df))
   row.names(counts_plus) <- row.names(new_counts)
   colnames(counts_plus) <- c(colnames(new_counts), "status_XIST", "status_Y",
-                             "annotated_sex", "survival", "followed", "age",
-                             "Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood", "sample_types")
+                             "annotated_sex", "survival", "followed", "age_index",
+                             "sample_type")
   
   # Process each case
   for (i in c_uuid) {
@@ -150,49 +162,51 @@ for (study in cancer_types) {
       sex_check[i, "time_to_status"] <- metadf[i, "surv_times"]
     }
     
+    metadf$sample_types[is.na(metadf$sample_types)] <- ""
+    
     # Extract sample types for the current case
-    sample_types <- strsplit(metadf[i, "sample_types"], ",")[[1]]
+    sample_type <- strsplit(metadf[i, "sample_type"], ",")[[1]]
     
     # Set age based on metadata
-    sex_check[i, "age"] <- metadf[i, "age_index"]
+    sex_check[i, "age_index"] <- metadf[i, "age_index"]
     
     # Handle replicates
     if (length(id_sets[[i]]) > 1) {
       iid <- id_sets[[i]]  # Extract all ids for the current case
-      counts_plus[iid, "annotated_sex"] <- metadf[i, "mf_list"]
+      counts_plus[iid, "annotated_sex"] <- metadf[i, "mf_list"] 
       counts_plus[iid, c("survival", "followed")] <- metadf[i, c("surv_times", "follow_list")]
-      counts_plus[iid, "age"] <- metadf[i, "age_index"]
-      counts_plus[iid, "sample_types"] <- paste(sample_types, collapse=",")
-      sex_check[i, "sample_types"] <- paste(sample_types, collapse=",")
+      counts_plus[iid, "age_index"] <- metadf[i, "age_index"]
+      counts_plus[iid, "sample_type"] <- metadf[i, "sample_type"]
+      sex_check[i, "sample_type"] <- metadf[i, "sample_type"]
       
       # Initialize sample type columns
-      counts_plus[iid, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
-      sex_check[i, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
-      
+      # counts_plus[iid, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
+      # sex_check[i, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
+      # 
       for (j in seq_along(iid)) {
-        for (sample_type in sample_types) {
-          # Update sample types
-          if (sample_type == "Solid Tissue Normal") {
-            counts_plus[iid[j], "Solid_Tissue_Normal"] <- "yes"
-            sex_check[i, "Solid_Tissue_Normal"] <- "yes"
-          }
-          if (sample_type == "Blood Derived Normal") {
-            counts_plus[iid[j], "Blood_Derived_Normal"] <- "yes"
-            sex_check[i, "Blood_Derived_Normal"] <- "yes"
-          }
-          if (sample_type == "Primary Tumor") {
-            counts_plus[iid[j], "Primary_Tumor"] <- "yes"
-            sex_check[i, "Primary_Tumor"] <- "yes"
-          }
-          if (sample_type == "Recurrent Tumor") {
-            counts_plus[iid[j], "Recurrent_Tumor"] <- "yes"
-            sex_check[i, "Recurrent_Tumor"] <- "yes"
-          }
-          if (sample_type == "Primary Blood Derived Cancer - Peripheral Blood") {
-            counts_plus[iid[j], "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
-            sex_check[i, "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
-          }
-        }
+        # for (sample_type in sample_type) {
+        #   # Update sample types
+        #   if (sample_type == "Solid Tissue Normal") {
+        #     counts_plus[iid[j], "Solid_Tissue_Normal"] <- "yes"
+        #     sex_check[i, "Solid_Tissue_Normal"] <- "yes"
+        #   }
+        #   if (sample_type == "Blood Derived Normal") {
+        #     counts_plus[iid[j], "Blood_Derived_Normal"] <- "yes"
+        #     sex_check[i, "Blood_Derived_Normal"] <- "yes"
+        #   }
+        #   if (sample_type == "Primary Tumor") {
+        #     counts_plus[iid[j], "Primary_Tumor"] <- "yes"
+        #     sex_check[i, "Primary_Tumor"] <- "yes"
+        #   }
+        #   if (sample_type == "Recurrent Tumor") {
+        #     counts_plus[iid[j], "Recurrent_Tumor"] <- "yes"
+        #     sex_check[i, "Recurrent_Tumor"] <- "yes"
+        #   }
+        #   if (sample_type == "Primary Blood Derived Cancer - Peripheral Blood") {
+        #     counts_plus[iid[j], "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
+        #     sex_check[i, "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
+        #   }
+        # }
         
         # -- Y chromosome:
         if (all(new_counts[iid[j], c("DDX3Y", "USP9Y", "UTY", "ZFY")] < 1.0)) {
@@ -212,11 +226,11 @@ for (study in cancer_types) {
           sex_check[i, "status_XIST"] <- counts_plus[iid[k], "status_XIST"]
           
           # Check sample types for two replicates
-          for (sample_type in c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")) {
-            if (counts_plus[iid[k], sample_type] == "yes") {
-              sex_check[i, sample_type] <- "yes"
-            }
-          }
+          # for (sample_type in c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")) {
+          #   if (counts_plus[iid[k], sample_type] == "yes") {
+          #     sex_check[i, sample_type] <- "yes"
+          #   }
+          # }
         }
       } else if (length(iid) == 3) {
         Y_status <- counts_plus[iid, "status_Y"]
@@ -225,47 +239,47 @@ for (study in cancer_types) {
         sex_check[i, "status_XIST"] <- if (all(XIST_status == "yes") || all(XIST_status == "no")) XIST_status[1] else "ambiguous"
         
         # Check sample types for three replicates
-        for (sample_type in c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")) {
-          sample_type_status <- counts_plus[iid, sample_type]
-          sex_check[i, sample_type] <- if (all(sample_type_status == "yes") || all(sample_type_status == "no")) sample_type_status[1] else "ambiguous"
-        }
+        # for (sample_type in c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")) {
+        #   sample_type_status <- counts_plus[iid, sample_type]
+        #   sex_check[i, sample_type] <- if (all(sample_type_status == "yes") || all(sample_type_status == "no")) sample_type_status[1] else "ambiguous"
+        # }
       }
     } else {
       # Handle cases with only a single sample
       iid <- id_sets[[i]]
       counts_plus[iid, "annotated_sex"] <- metadf[i, "mf_list"]
       counts_plus[iid, c("survival", "followed")] <- metadf[i, c("surv_times", "follow_list")]
-      counts_plus[iid, "age"] <- metadf[i, "age_index"]
-      counts_plus[iid, "sample_types"] <- paste(sample_types, collapse=",")
-      sex_check[i, "sample_types"] <- paste(sample_types, collapse=",")
+      counts_plus[iid, "age_index"] <- metadf[i, "age_index"]
+      # counts_plus[iid, "sample_type"] <- paste(sample_type, collapse=",")
+      # sex_check[i, "sample_type"] <- paste(sample_type, collapse=",")
       # Initialize sample type columns to "no"
-      counts_plus[iid, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
-      sex_check[i, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
+      # counts_plus[iid, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
+      # sex_check[i, c("Solid_Tissue_Normal", "Blood_Derived_Normal", "Primary_Tumor", "Recurrent_Tumor", "Primary Blood Derived Cancer - Peripheral Blood")] <- "no"
+      # 
+      # Split sample_type into a vector and process each one
+      # sample_type_vector <- unlist(strsplit(sample_type, ",\\s*"))
       
-      # Split sample_types into a vector and process each one
-      sample_types_vector <- unlist(strsplit(sample_types, ",\\s*"))
-      
-      for (sample_type in sample_types_vector) {
-        sample_type <- trimws(sample_type)  # Standardize and trim whitespace
-        # print(paste("Processing sample type:", sample_type))  # Debugging output
-        
-        if (sample_type == "Solid Tissue Normal") {
-          counts_plus[iid, "Solid_Tissue_Normal"] <- "yes"
-          sex_check[i, "Solid_Tissue_Normal"] <- "yes"
-        } else if (sample_type == "Blood Derived Normal") {
-          counts_plus[iid, "Blood_Derived_Normal"] <- "yes"
-          sex_check[i, "Blood_Derived_Normal"] <- "yes"
-        } else if (sample_type == "Primary Tumor") {
-          counts_plus[iid, "Primary_Tumor"] <- "yes"
-          sex_check[i, "Primary_Tumor"] <- "yes"
-        } else if (sample_type == "Recurrent Tumor") {
-          counts_plus[iid, "Recurrent_Tumor"] <- "yes"
-          sex_check[i, "Recurrent_Tumor"] <- "yes"
-        } else if (sample_type == "Primary Blood Derived Cancer - Peripheral Blood") {
-          counts_plus[iid, "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
-          sex_check[i, "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
-        }
-      }
+      # for (sample_type in sample_type_vector) {
+      #   sample_type <- trimws(sample_type)  # Standardize and trim whitespace
+      #   # print(paste("Processing sample type:", sample_type))  # Debugging output
+      #   
+      #   if (sample_type == "Solid Tissue Normal") {
+      #     counts_plus[iid, "Solid_Tissue_Normal"] <- "yes"
+      #     sex_check[i, "Solid_Tissue_Normal"] <- "yes"
+      #   } else if (sample_type == "Blood Derived Normal") {
+      #     counts_plus[iid, "Blood_Derived_Normal"] <- "yes"
+      #     sex_check[i, "Blood_Derived_Normal"] <- "yes"
+      #   } else if (sample_type == "Primary Tumor") {
+      #     counts_plus[iid, "Primary_Tumor"] <- "yes"
+      #     sex_check[i, "Primary_Tumor"] <- "yes"
+      #   } else if (sample_type == "Recurrent Tumor") {
+      #     counts_plus[iid, "Recurrent_Tumor"] <- "yes"
+      #     sex_check[i, "Recurrent_Tumor"] <- "yes"
+      #   } else if (sample_type == "Primary Blood Derived Cancer - Peripheral Blood") {
+      #     counts_plus[iid, "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
+      #     sex_check[i, "Primary Blood Derived Cancer - Peripheral Blood"] <- "yes"
+      #   }
+      # }
       
       # -- Y chromosome:
       if (all(new_counts[iid, c("DDX3Y", "USP9Y", "UTY", "ZFY")] < 1.0)) {

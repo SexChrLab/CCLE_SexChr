@@ -1,0 +1,334 @@
+---
+title: "Combining tcga data"
+author: "Ilsa Rodriguez"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+```{r}
+library(data.table)
+
+# List of cancer types
+cancer_types <- c("LAML", "ACC", "BLCA", "LGG", "BRCA", "CESC", "CHOL", "COAD", "ESCA", 
+                  "GBM", "HNSC", "KICH", "KIRC", "KIRP", "LIHC", "LUAD", "LUSC", "DLBC",
+                  "MESO", "OV", "PAAD", "PCPG", "PRAD", "READ", "SARC", "SKCM", "STAD", 
+                  "TGCT", "THCA", "THYM", "UCS", "UCEC", "UVM")
+
+# Directory containing the files
+data_directory <- "C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/"
+
+# Initialize an empty list to store data tables
+all_data <- list()
+
+# Loop through each cancer type, load the corresponding TSV file, and add it to the list
+for (cancer in cancer_types) {
+  file_path <- sprintf("%s/TCGA-%s-META.tsv", data_directory, cancer)
+  if (file.exists(file_path)) {
+    data <- fread(file_path)
+    data[, CancerType := cancer]  # Add a new column to identify the cancer type
+    all_data[[cancer]] <- data
+  } else {
+    cat("File not found for cancer type:", cancer, "\n")
+  }
+}
+
+# Combine all data tables into one
+combined_data <- rbindlist(all_data, use.names = TRUE, fill = TRUE)
+
+# Optionally, save the combined dataset to a new TSV file
+write.csv(combined_data, "combined_cancer_data_v6.csv", sep = "\t")
+combined_data
+
+```
+```{r}
+library(data.table)
+
+# List of cancer types
+cancer_types <- c("LAML", "ACC", "BLCA", "LGG", "BRCA", "CESC", "CHOL", "COAD", "ESCA", 
+                  "GBM", "HNSC", "KICH", "KIRC", "KIRP", "LIHC", "LUAD", "LUSC", "DLBC",
+                  "MESO", "OV", "PAAD", "PCPG", "PRAD", "READ", "SARC", "SKCM", "STAD", 
+                  "TGCT", "THCA", "THYM", "UCS", "UCEC", "UVM")
+
+# Directory containing the files
+data_directory <- "C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/"
+
+# Initialize an empty list to store data tables
+all_data <- list()
+
+# Loop through each cancer type, load the corresponding META.tsv file, and add it to the list
+for (cancer in cancer_types) {
+  file_path <- sprintf("%s/TCGA-%s-META.tsv", data_directory, cancer)
+  
+  if (file.exists(file_path)) {
+    data <- fread(file_path)
+    data[, CancerType := cancer]  # Add a new column to identify the cancer type
+    all_data[[cancer]] <- data
+  } else {
+    cat("File not found for cancer type:", cancer, "\n")
+  }
+}
+
+# Combine all data tables into one
+combined_data <- rbindlist(all_data, use.names = TRUE, fill = TRUE)
+
+# Optionally, save the combined dataset to a new TSV file
+write.csv(combined_data, "combined_cancer_data.csv", row.names = FALSE)
+
+# View the combined data
+print(head(combined_data))
+
+```
+
+
+
+
+
+```{r}
+ychr_gnames <- c("AMELY", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y", "PRKY",
+                 "TMSB4Y", "USP9Y", "UTY", "ZFY", "SRY","RPS4Y1")
+
+for (gene in c("XIST", ychr_gnames)) {
+  gene_expression <- log1p(combined_data[[gene]])
+  gene_expression[is.infinite(gene_expression)] <- NA
+  
+  gene_data_for_plot <- data.frame(Solid_Tissue_Normal = combined_data$Solid_Tissue_Normal, 
+                                   annotated_sex = combined_data$annotated_sex, 
+                                   expression = gene_expression)
+  
+  p <- ggplot(gene_data_for_plot, aes(x = Solid_Tissue_Normal, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("grey", "orange")) +
+    geom_jitter(size = 0.75) +
+    ylab(paste0(gene, " Expression (log-transformed)")) +
+    theme_light() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels for readability
+
+  
+  violin6_fname <- paste("Log_Violin_TCGA", gene, ".png", sep = "_")
+  ggsave(violin6_fname, p, width = 10, height = 8, units = "in", dpi = 300)
+  
+}
+```
+```{r}
+print(colnames(combined_data))
+```
+
+```{r}
+combined_data <- combined_data %>% filter(!is.na(annotated_sex))
+# Filter data for blood cancers (e.g., DLBC, LAML)
+blood_cancer_data <- combined_data %>%
+  filter(CancerType %in% c("DLBC", "LAML"))
+
+# Define custom colors for male and females for points  
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+# Function to create and save plots for each gene and sex
+create_violin_plot <- function(data, gene, sex) {
+  gene_expression <- log1p(data[[gene]]) 
+  
+  gene_data_for_plot <- data.frame(annotated_sex = data$annotated_sex, 
+                                   cancer_type = data$CancerType, 
+                                   expression = gene_expression)
+  
+  fill_color <- ifelse(sex == "female", "grey", "orange")
+  
+  p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 0.5, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c(fill_color)) +
+    geom_point(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) + 
+    scale_color_manual(values = custom_colors) +
+    ylab(paste0(gene, " Expression (log10(TPM))")) +  
+    xlab("Cancer Types") +
+    theme_light() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+          axis.text.y = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold")) +
+    labs(title = paste(gene, "Expression in", sex, "Blood Cancer Samples"))
+  
+  print(p)
+
+  violin_fname <- paste("Log_Violin", sex, gene, ".png", sep = "_")
+  ggsave(violin_fname, p, width = 23, height = 10, units = "in", dpi = 300)
+}
+
+# Create plots for females
+for (gene in c("XIST", "DDX3Y")) {
+  female_data <- blood_cancer_data %>% filter(annotated_sex == "female")
+  create_violin_plot(female_data, gene, "female")
+}
+
+# Create plots for males
+for (gene in c("XIST", "DDX3Y")) {
+  male_data <- blood_cancer_data %>% filter(annotated_sex == "male")
+  create_violin_plot(male_data, gene, "male")
+}
+
+```
+
+```{r}
+# Filter data for blood cancers (e.g., DLBC, LAML)
+blood_cancer_data <- combined_data %>%
+  filter(CancerType %in% c("DLBC", "LAML"))
+
+# Define custom colors for male and females for points  
+custom_colors <- c("female" = "#899499", "male" = "#CC5500")
+
+cancer_type_labels <- c(
+  "DLBC" = "DLBC (Lymphoid Neoplasm)",
+  "LAML" = "LAML (Myeloid Leukemia)"
+)
+# Function to create and save plots for each gene
+create_violin_plot <- function(data, gene) {
+  gene_expression <- log1p(data[[gene]]) 
+  
+  gene_data_for_plot <- data.frame(annotated_sex = data$annotated_sex, 
+                                   cancer_type = data$CancerType, 
+                                   expression = gene_expression)
+  
+  p <- ggplot(gene_data_for_plot, aes(x = cancer_type, y = expression, fill = annotated_sex)) +
+    geom_violin(trim = FALSE, width = 0.8, position = position_dodge(width = 0.75)) +
+    geom_jitter(aes(color = annotated_sex), size = 0.45, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(trans = "log10") +
+    scale_fill_manual(values = c("female" = "grey", "male" = "orange")) +
+    scale_color_manual(values = custom_colors) +
+    scale_x_discrete(labels = cancer_type_labels) +
+    ylab(paste0(gene, " Expression (log10(TPM))")) +  
+    xlab("Cancer Types") +
+    theme_light() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
+          axis.text.y = element_text(size = 10),
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold")) +
+    labs(title = paste(gene, "Expression in Blood Cancer Samples"))
+  
+  print(p)
+
+  violin_fname <- paste("Log_Violin", gene, ".png", sep = "_")
+  ggsave(violin_fname, p, width = 15, height = 7, units = "in", dpi = 300)
+}
+
+# Create plots for each gene
+for (gene in c("XIST", "DDX3Y")) {
+  create_violin_plot(blood_cancer_data, gene)
+}
+```
+```{r}
+# Generate summary table of sample type combinations
+summary_table <- combined_data %>%
+  group_by(CancerType) %>%
+  summarize(
+    solid_tissue_normal_count = sum(grepl("Solid Tissue Normal", sample_types)),
+    primary_tumor_count = sum(grepl("Primary Tumor", sample_types)),
+    blood_derived_normal_count = sum(grepl("Blood Derived Normal", sample_types)),
+    recurrent_tumor_count = sum(grepl("Recurrent Tumor", sample_types)),
+    primary_blood_derived_cancer_peripheral_blood_count = sum(grepl("Primary Blood Derived Cancer - Peripheral Blood", sample_types))
+  )
+
+print(summary_table)
+
+write.csv(summary_table, file = 'C:/Users/livin/ASU FILES/Reseach Files/Genomic Sex Chromosome/TCGA_RNAseq_counts/summary_table.csv', row.names = FALSE)
+
+
+```
+
+```{r}
+# Create a summary table
+summary_table <- data.frame(
+  Category = character(),
+  Count = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Structure of Each Category
+# Each category is represented as a key-value pair within the list.
+# 
+# Key: A descriptive string that summarizes the category.
+# Example: "Female Normal XX - Tumor XX"
+# Value: A nested list with two elements: adj and tumor.
+# adj: Represents the sex and chromosome status in the normal/adjacent tissues.
+# tumor: Represents the chromosome status in the tumor tissues.
+# Elements in adj and tumor
+# Sex: Indicates the sex of the patient ("female" or "male").
+# XIST Status: Indicates whether the XIST gene is expressed ("yes" or "no").
+# Y Chromosome Status: Indicates whether Y chromosome genes are expressed ("yes" or "no").
+# Example Breakdown
+# Category: "Female Normal XX - Tumor XX"
+# adj: c("female", "yes", "no")
+# "female": The patient is female.
+# "yes": XIST gene is expressed in normal/adjacent tissues.
+# "no": Y chromosome genes are not expressed in normal/adjacent tissues.
+# tumor: c("yes", "no")
+# "yes": XIST gene is expressed in tumor tissues.
+# "no": Y chromosome genes are not expressed in tumor tissues.
+
+
+
+# Define the categories
+categories <- list(
+  "Female Normal XX - Tumor XX" = list(adj = c("female", "yes", "no"), tumor = c("yes", "no")),
+  "Female Normal XX - Tumor X0" = list(adj = c("female", "yes", "no"), tumor = c("no", "no")),
+  "Male Normal XY - Tumor XY" = list(adj = c("male", "yes", "yes"), tumor = c("yes", "yes")),
+  "Male Normal XY - Tumor X0" = list(adj = c("male", "yes", "yes"), tumor = c("no", "yes")),
+  "Female Normal X0 - Tumor X0" = list(adj = c("female", "no", "no"), tumor = c("no", "no")),
+  "Female Normal X0 - Tumor XX" = list(adj = c("female", "no", "no"), tumor = c("yes", "no")),
+  "Male Normal X0 - Tumor XY" = list(adj = c("male", "no", "yes"), tumor = c("yes", "yes")),
+  "Male Normal X0 - Tumor X0" = list(adj = c("male", "no", "yes"), tumor = c("no", "yes"))
+)
+
+# Populate the summary table
+for (cat in names(categories)) {
+  adj_cond <- categories[[cat]]$adj
+  tumor_cond <- categories[[cat]]$tumor
+  
+  count <- nrow(combined_data %>% 
+                  filter(annotated_sex == adj_cond[1] & 
+                           Solid_Tissue_Normal == adj_cond[2] & 
+                           status_Y == adj_cond[3] & 
+                           Primary_Tumor == tumor_cond[1] & 
+                           status_Y == tumor_cond[2]))
+  
+  summary_table <- rbind(summary_table, data.frame(Category = cat, Count = count))
+}
+
+print(summary_table)
+```
+
+```{r}
+library(dplyr)
+library(readr)
+
+
+# Inspect the data
+print(colnames(combined_data))
+glimpse(combined_data)
+
+# Check for the relevant columns and values
+print(head(combined_data %>% select(rowname, CancerType, Solid_Tissue_Normal, Primary_Tumor, DDX3Y)))
+
+# Check the distribution of "yes" and "no" values
+print(table(combined_data$Solid_Tissue_Normal))
+print(table(combined_data$Primary_Tumor))
+
+# Check the gene expression values
+summary(combined_data$DDX3Y)
+
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Load your data here
+
+data <- combined_data
+
+
+```
+
