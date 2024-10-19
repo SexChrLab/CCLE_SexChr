@@ -58,14 +58,18 @@ all_cancers_sex_genes_tpm <- read.csv("genes_tpm_all_names.csv", header = TRUE)
 ## XIST Thresholds
 ```{r}
 # XIST
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in XIST
-sum(is.na(all_cancers_sex_genes_tpm$XIST)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$XIST)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_XIST <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_XIST <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_XIST = log10(1 + XIST))
 
 # Remove rows with NA in XIST or gender
@@ -181,14 +185,18 @@ ggsave(filename = "violin_XIST_allcancers_log10p1.pdf", plot = violin_XIST_allca
 ## RPS4Y1 Thresholds
 ```{r}
 # RPS4Y1
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in RPS4Y1
-sum(is.na(all_cancers_sex_genes_tpm$RPS4Y1)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$RPS4Y1)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_RPS4Y1 <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_RPS4Y1 <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_RPS4Y1 = log10(1 + RPS4Y1))
 
 # Remove rows with NA in RPS4Y1 or gender
@@ -304,14 +312,18 @@ ggsave(filename = "violin_RPS4Y1_allcancers_log10p1.pdf", plot = violin_RPS4Y1_a
 ## ZFY Thresholds
 ```{r}
 # ZFY
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in ZFY
-sum(is.na(all_cancers_sex_genes_tpm$ZFY)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$ZFY)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_ZFY <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_ZFY <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_ZFY = log10(1 + ZFY))
 
 # Remove rows with NA in ZFY or gender
@@ -427,14 +439,18 @@ ggsave(filename = "violin_ZFY_allcancers_log10p1.pdf", plot = violin_ZFY_allcanc
 ## USP9Y Thresholds
 ```{r}
 # USP9Y
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in USP9Y
-sum(is.na(all_cancers_sex_genes_tpm$USP9Y)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$USP9Y)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_USP9Y <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_USP9Y <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_USP9Y = log10(1 + USP9Y))
 
 # Remove rows with NA in USP9Y or gender
@@ -550,14 +566,18 @@ ggsave(filename = "violin_USP9Y_allcancers_log10p1.pdf", plot = violin_USP9Y_all
 ## DDX3Y Thresholds
 ```{r}
 # DDX3Y
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in DDX3Y
-sum(is.na(all_cancers_sex_genes_tpm$DDX3Y)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$DDX3Y)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_DDX3Y <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_DDX3Y <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_DDX3Y = log10(1 + DDX3Y))
 
 # Remove rows with NA in DDX3Y or gender
@@ -673,14 +693,18 @@ ggsave(filename = "violin_DDX3Y_allcancers_log10p1.pdf", plot = violin_DDX3Y_all
 ## UTY Thresholds
 ```{r}
 # UTY
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in UTY
-sum(is.na(all_cancers_sex_genes_tpm$UTY)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$UTY)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_UTY <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_UTY <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_UTY = log10(1 + UTY))
 
 # Remove rows with NA in UTY or gender
@@ -796,14 +820,18 @@ ggsave(filename = "violin_UTY_allcancers_log10p1.pdf", plot = violin_UTY_allcanc
 ## KDM5D Thresholds
 ```{r}
 # KDM5D
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in KDM5D
-sum(is.na(all_cancers_sex_genes_tpm$KDM5D)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$KDM5D)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_KDM5D <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_KDM5D <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_KDM5D = log10(1 + KDM5D))
 
 # Remove rows with NA in KDM5D or gender
@@ -919,14 +947,18 @@ ggsave(filename = "violin_KDM5D_allcancers_log10p1.pdf", plot = violin_KDM5D_all
 ## EIF1AY Thresholds
 ```{r}
 # EIF1AY
+# Filter for only 'Primary Tumor' samples only
+all_cancers_sex_genes_tpm_primary <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor")
+
 # Check for any NAs in gender
-sum(is.na(all_cancers_sex_genes_tpm$gender)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$gender)) 
 
 # Check for any NAs in EIF1AY
-sum(is.na(all_cancers_sex_genes_tpm$EIF1AY)) 
+sum(is.na(all_cancers_sex_genes_tpm_primary$EIF1AY)) 
 
 # Remove non-finite values after adjustment
-genes_tpm_all_log10p1_EIF1AY <- all_cancers_sex_genes_tpm %>%
+genes_tpm_all_log10p1_EIF1AY <- all_cancers_sex_genes_tpm_primary %>%
   mutate(log10p1_EIF1AY = log10(1 + EIF1AY))
 
 # Remove rows with NA in EIF1AY or gender
