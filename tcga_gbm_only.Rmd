@@ -1,0 +1,1232 @@
+---
+title: "TCGA-GBM Studies"
+author: "Robet Phavong"
+date: "2024-10-15"
+output: html_document
+---
+
+
+## Set options for printing reports
+```{r Printoptions}
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+## Set options to prevent plots from being cut off when printing report
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=6)
+```
+
+
+# Load required libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(ggrepel) # used to adjust labels in pie charts 
+```
+
+
+# Set working directory
+```{r}
+# Specify the directory
+working_path_thresholds <- "/Users/robertphavongurquidez/Desktop/TCGA_GBM/"
+
+setwd(working_path_thresholds)
+
+working_path_thresholds <- "/Users/robertphavongurquidez/Desktop/TCGA_GBM/"
+```
+
+
+# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes, tumor suppressors, and oncogenes)
+```{r}
+all_cancers_sex_genes_tpm <- read.csv("inferred_sex_chromosome_complement.csv", header = TRUE)
+```
+
+
+
+## Primary Tumor Violin Plots of Glioblastoma multiforme (GBM) and all sex chromosome genes of interest separated by gender
+```{r}
+# Define the list of genes to analyze
+genes_of_interest <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Filter for only the 'Cancer.Type' called 'GBM' and for only 'Primary Tumor' sample_type
+all_cancers_sex_genes_tpm_gbm <- all_cancers_sex_genes_tpm %>%
+  filter(Cancer.Type == "GBM") %>%
+  filter(sample_type == "Primary Tumor")
+
+# Loop over each gene and perform the analysis
+for (gene in genes_of_interest) {
+  
+  # Check for any NAs in gender
+  print(paste("Checking NAs in gender for gene:", gene))
+  print(sum(is.na(all_cancers_sex_genes_tpm_gbm$gender))) 
+  
+  # Check for any NAs in the current gene
+  print(paste("Checking NAs in", gene))
+  print(sum(is.na(all_cancers_sex_genes_tpm_gbm[[gene]]))) 
+  
+  # Remove non-finite values after adjustment
+  genes_tpm_gbm_log10p1 <- all_cancers_sex_genes_tpm_gbm %>%
+    mutate(!!paste0("log10p1_", gene) := log10(1 + .data[[gene]]))
+  
+  # Remove rows with NA in the current gene or gender
+  genes_tpm_gbm_log10p1 <- na.omit(genes_tpm_gbm_log10p1[, c(paste0("log10p1_", gene), "Cancer.Name", "gender")])
+  
+  # Precompute the counts of samples by Cancer Name and gender
+  sample_counts_log10p1_gbm <- genes_tpm_gbm_log10p1 %>%
+    group_by(Cancer.Name, gender) %>%
+    summarize(count = n(), .groups = 'drop')
+  
+  # Determined high and low threshold  
+  expressed <- log10(1 + 10)
+  intermediate <- log10(1 + 1)
+  
+  print(paste("Expressed:", expressed))
+  print(paste("Intermediate:", intermediate))
+  
+  # Calculate the number of FEMALES and MALES
+  sample_counts_gbm <- genes_tpm_gbm_log10p1 %>%
+    group_by(gender) %>%
+    summarise(n = n())
+  
+  # Create the violin plot for the current gene
+  violin_plot_gbm <- ggplot(genes_tpm_gbm_log10p1, aes(x = gender, y = .data[[paste0("log10p1_", gene)]], fill = gender)) +
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+    geom_jitter() +
+    labs(title = paste("TCGA", gene, "Gene Expression by Gender \n(Glioblastoma Multiforme - Primary Tumors)"),
+         x = "Gender",
+         y = paste(gene, "Gene Expression (log10(1+tpm))")) +
+    theme_minimal() +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 10),  # Adjust the size for legend text
+      legend.title = element_text(size = 10),  # Adjust the size for legend title
+      axis.text.x = element_text(size = 10, vjust = 0.5, hjust = 0.5),
+      axis.text.y = element_text(size = 10),
+      strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+    scale_fill_manual(values = c("MALE" = "#ffec417f", "FEMALE" = "#ffd241ff")) +
+    scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red", size = 0.5) +
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue", size = 0.5) +
+    
+    # Add labels for thresholds with actual values
+    annotate("text", x = 1.5, y = expressed, 
+             label = paste("Expressed"), 
+             color = "red", vjust = -0.5, size = 3) +
+    annotate("text", x = 1.5, y = intermediate, 
+             label = paste("Intermediate"), 
+             color = "blue", vjust = -0.5, size = 3) +
+    
+    # Add a custom legend for the threshold lines
+    scale_linetype_manual(name = "Thresholds", 
+                          values = c("dashed"),
+                          guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+    
+    # Add sample counts for each gender
+    annotate("text", x = 1, y = 3, 
+             label = paste("n =", sample_counts_gbm$n[sample_counts_gbm$gender == "FEMALE"]), 
+             color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+    annotate("text", x = 2, y = 3, 
+             label = paste("n =", sample_counts_gbm$n[sample_counts_gbm$gender == "MALE"]), 
+             color = "black", size = 3, vjust = -1)  + # Label for MALE
+    ylim(-0.5, 4)  # Set the y-axis limits
+  
+  # Display the plot
+  print(violin_plot_gbm)
+  
+  # # Save the plot
+  # ggsave(filename = paste0("violin_", gene, "_gbm_log10p1.png"), plot = violin_plot_gbm, dpi = 300)
+  # ggsave(filename = paste0("violin_", gene, "_gbm_log10p1.pdf"), plot = violin_plot_gbm)
+}
+```
+
+
+
+## Primary Tumor Violin Plots of Brain Lower Grade Glioma (LGG) and all sex chromosome genes of interest separated by gender
+```{r}
+# Define the list of genes to analyze
+genes_of_interest <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Filter for only the 'Cancer.Type' called 'LGG' and for only 'Primary Tumor' sample_type
+all_cancers_sex_genes_tpm_lgg <- all_cancers_sex_genes_tpm %>%
+  filter(Cancer.Type == "LGG") %>%
+  filter(sample_type == "Primary Tumor")
+
+# Loop over each gene and perform the analysis
+for (gene in genes_of_interest) {
+  
+  # Check for any NAs in gender
+  print(paste("Checking NAs in gender for gene:", gene))
+  print(sum(is.na(all_cancers_sex_genes_tpm_lgg$gender))) 
+  
+  # Check for any NAs in the current gene
+  print(paste("Checking NAs in", gene))
+  print(sum(is.na(all_cancers_sex_genes_tpm_lgg[[gene]]))) 
+  
+  # Remove non-finite values after adjustment
+  genes_tpm_lgg_log10p1 <- all_cancers_sex_genes_tpm_lgg %>%
+    mutate(!!paste0("log10p1_", gene) := log10(1 + .data[[gene]]))
+  
+  # Remove rows with NA in the current gene or gender
+  genes_tpm_lgg_log10p1 <- na.omit(genes_tpm_lgg_log10p1[, c(paste0("log10p1_", gene), "Cancer.Name", "gender")])
+  
+  # Precompute the counts of samples by Cancer Name and gender
+  sample_counts_log10p1_lgg <- genes_tpm_lgg_log10p1 %>%
+    group_by(Cancer.Name, gender) %>%
+    summarize(count = n(), .groups = 'drop')
+  
+  # Determined high and low threshold  
+  expressed <- log10(1 + 10)
+  intermediate <- log10(1 + 1)
+  
+  print(paste("Expressed:", expressed))
+  print(paste("Intermediate:", intermediate))
+  
+  # Calculate the number of FEMALES and MALES
+  sample_counts_lgg <- genes_tpm_lgg_log10p1 %>%
+    group_by(gender) %>%
+    summarise(n = n())
+  
+  # Create the violin plot for the current gene
+  violin_plot_lgg <- ggplot(genes_tpm_lgg_log10p1, aes(x = gender, y = .data[[paste0("log10p1_", gene)]], fill = gender)) +
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+    geom_jitter() +
+    labs(title = paste("TCGA", gene, "Gene Expression by Gender \n(Brain Lower Grade Glioma - Primary Tumors)"),
+         x = "Gender",
+         y = paste(gene, "Gene Expression (log10(1+tpm))")) +
+    theme_minimal() +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 10),  # Adjust the size for legend text
+      legend.title = element_text(size = 10),  # Adjust the size for legend title
+      axis.text.x = element_text(size = 10, vjust = 0.5, hjust = 0.5),
+      axis.text.y = element_text(size = 10),
+      strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+    scale_fill_manual(values = c("MALE" = "#ffec417f", "FEMALE" = "#ffd241ff")) +
+    scale_color_manual(values = c("black", "black")) + # Add horizontal lines for thresholds
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red", size = 0.5) +
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue", size = 0.5) +
+    
+    # Add labels for thresholds with actual values
+    annotate("text", x = 1.5, y = expressed, 
+             label = paste("Expressed"), 
+             color = "red", vjust = -0.5, size = 3) +
+    annotate("text", x = 1.5, y = intermediate, 
+             label = paste("Intermediate"), 
+             color = "blue", vjust = -0.5, size = 3) +
+    
+    # Add a custom legend for the threshold lines
+    scale_linetype_manual(name = "Thresholds", 
+                          values = c("dashed"),
+                          guide = guide_legend(override.aes = list(color = c("red", "blue")))) +
+    
+    # Add sample counts for each gender
+    annotate("text", x = 1, y = 3, 
+             label = paste("n =", sample_counts_lgg$n[sample_counts_lgg$gender == "FEMALE"]), 
+             color = "black", size = 3, vjust = -1) +  # Label for FEMALE
+    annotate("text", x = 2, y = 3, 
+             label = paste("n =", sample_counts_lgg$n[sample_counts_lgg$gender == "MALE"]), 
+             color = "black", size = 3, vjust = -1)  + # Label for MALE
+    ylim(-0.5, 4)  # Set the y-axis limits
+  
+  # Display the plot
+  print(violin_plot_lgg)
+  
+  # # Save the plot
+  # ggsave(filename = paste0("violin_", gene, "_lgg_log10p1.png"), plot = violin_plot_lgg, dpi = 300)
+  # ggsave(filename = paste0("violin_", gene, "_lgg_log10p1.pdf"), plot = violin_plot_lgg)
+}
+```
+
+
+
+## Violin plots of XIST for FEMALE's samples only and for sample types 'Primary Tumor'
+```{r}
+# XIST
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_XIST <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_XIST = log10(1 + XIST))
+
+# Remove rows with NA in XIST or gender
+genes_tpm_all_log10p1_XIST <- na.omit(genes_tpm_all_log10p1_XIST[, c("Cancer.Name", "Cancer.Type", "gender", "sample_type", "log10p1_XIST")])
+
+
+# Filter for only the Cancer.Types 'LGG' and 'GBM'
+genes_tpm_LGG_GBM_log10p1_XIST_female <- genes_tpm_all_log10p1_XIST %>%
+  filter(gender == "FEMALE") %>%
+  filter(sample_type == "Primary Tumor") %>%
+  filter(Cancer.Type %in% c("LGG", "GBM"))  # Only LGG and GBM
+
+# Plot with thresholds for FEMALE samples and only LGG and GBM cancer types on the x-axis
+violin_XIST_female_LGG_GBM_log10p1 <- ggplot(genes_tpm_LGG_GBM_log10p1_XIST_female, aes(x = Cancer.Type, y = log10p1_XIST, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter() +
+  labs(title = "TCGA XIST Gene Expression of Female Primary Tumors \n(Glioblastoma Multiforme & Brain Lower Grade Glioma)",
+       x = "Cancer Type",
+       y = "XIST Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 10),  # Adjust the size for legend text
+    legend.title = element_text(size = 10),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 10, vjust = 0.5, margin = margin(t = 0)),  # Adjust vjust and margin
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("FEMALE" = "#ffd241ff")) +
+  scale_color_manual(values = rep("black", length(unique(genes_tpm_LGG_GBM_log10p1_XIST_female$Cancer.Name)))) +
+  geom_hline(yintercept = expressed, linetype = "dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue", size = 0.5) +
+
+  # Add labels for thresholds
+  annotate("text", x = 1.5, y = expressed,
+           label = paste("Expressed"),
+           color = "red", vjust = -0.5, size = 3) +
+  annotate("text", x = 1.5, y = intermediate,
+           label = paste("Intermediate"),
+           color = "blue", vjust = -0.5, size = 3) +
+
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+# Display the plot
+violin_XIST_female_LGG_GBM_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_XIST_female_LGG_GBM_log10p1.png", plot = violin_XIST_female_LGG_GBM_log10p1, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "violin_XIST_female_LGG_GBM_log10p1.pdf", plot = violin_XIST_female_LGG_GBM_log10p1)
+```
+
+
+
+
+## Violin plots of DDX3Y for MALE's samples only and for sample types 'Primary Tumor'
+```{r}
+# DDX3Y
+# Remove non-finite values after adjustment
+genes_tpm_all_log10p1_DDX3Y <- all_cancers_sex_genes_tpm %>%
+  mutate(log10p1_DDX3Y = log10(1 + DDX3Y))
+
+# Remove rows with NA in DDX3Y or gender
+genes_tpm_all_log10p1_DDX3Y <- na.omit(genes_tpm_all_log10p1_DDX3Y[, c("Cancer.Name", "Cancer.Type", "gender", "sample_type", "log10p1_DDX3Y")])
+
+
+# Filter for only the Cancer.Types 'LGG' and 'GBM'
+genes_tpm_LGG_GBM_log10p1_DDX3Y_male <- genes_tpm_all_log10p1_DDX3Y %>%
+  filter(gender == "MALE") %>%
+  filter(sample_type == "Primary Tumor") %>%
+  filter(Cancer.Type %in% c("LGG", "GBM"))  # Only LGG and GBM
+
+# Plot with thresholds for MALE samples and only LGG and GBM cancer types on the x-axis
+violin_DDX3Y_male_LGG_GBM_log10p1 <- ggplot(genes_tpm_LGG_GBM_log10p1_DDX3Y_male, aes(x = Cancer.Type, y = log10p1_DDX3Y, fill = gender)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +
+  geom_jitter() +
+  labs(title = "TCGA DDX3Y Gene Expression of Male Primary Tumors \n(Glioblastoma Multiforme & Brain Lower Grade Glioma)",
+       x = "Cancer Type",
+       y = "DDX3Y Gene Expression (log10(1+tpm))") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 10),  # Adjust the size for legend text
+    legend.title = element_text(size = 10),  # Adjust the size for legend title
+    axis.text.x = element_text(size = 10, vjust = 0.5, margin = margin(t = 0)),  # Adjust vjust and margin
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(size = 5, hjust = 0.5)) +  # Center the strip text
+  scale_fill_manual(values = c("MALE" = "#ffec417f")) +
+  scale_color_manual(values = rep("black", length(unique(genes_tpm_LGG_GBM_log10p1_DDX3Y_male$Cancer.Name)))) +
+  geom_hline(yintercept = expressed, linetype = "dashed", color = "red", size = 0.5) +
+  geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue", size = 0.5) +
+
+  # Add labels for thresholds
+  annotate("text", x = 1.5, y = expressed,
+           label = paste("Expressed"),
+           color = "red", vjust = -0.5, size = 3) +
+  annotate("text", x = 1.5, y = intermediate,
+           label = paste("Intermediate"),
+           color = "blue", vjust = -0.5, size = 3) +
+
+  ylim(-0.5, 4)  # Set the y-axis limits
+
+# Display the plot
+violin_DDX3Y_male_LGG_GBM_log10p1
+
+# # Save the plot if needed
+# ggsave(filename = "violin_DDX3Y_male_LGG_GBM_log10p1.png", plot = violin_DDX3Y_male_LGG_GBM_log10p1, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "violin_DDX3Y_male_LGG_GBM_log10p1.pdf", plot = violin_DDX3Y_male_LGG_GBM_log10p1)
+```
+
+
+
+
+## Pie Charts of GBM
+## Pie Charts for Conservative Calls
+```{r}
+## FEMALES
+# Filter FEMALE samples and Primary Tumor sample type
+female_data_pie_conservative_gbm <- all_cancers_sex_genes_tpm %>%
+  filter(gender == "FEMALE", sample_type == "Primary Tumor", Cancer.Type == "GBM")
+
+# Calculate total number of FEMALEs
+total_females_pie_conservative_gbm <- female_data_pie_conservative_gbm %>%
+  filter(gender == "FEMALE") %>%
+  nrow()
+
+# Summarize the count of each 'conservative_calls' category within FEMALE samples
+female_counts_pie_conservative_gbm <- female_data_pie_conservative_gbm %>%
+  group_by(conservative_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_females_pie_conservative_gbm) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_females <- c(
+  "XaXi" = "lightgreen",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(female_counts_pie_conservative_gbm, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in FEMALE Samples\n(Conservative Calls for Glioblastoma Multiforme)") +
+  scale_fill_manual(values = color_scheme_females) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+female_counts_pie_conservative_gbm <- female_counts_pie_conservative_gbm %>%
+  mutate(
+    conservative_calls = factor(conservative_calls, levels = c("XaXi", "XO/XaXa", "XaXi Y", "XO/XaXa Y")),
+    label = case_when(
+      conservative_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      conservative_calls == "XO/XaXa" ~ paste0("No inactivation, XaXa or XaO: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      conservative_calls == "XO/XaXa Y" ~ paste0("No inactivation, XaXa or XaO, Y expressed: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and updated legend names
+conservative_females_piechart_gbm <- ggplot(female_counts_pie_conservative_gbm, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in FEMALE Samples \n(Conservative Calls for Glioblastoma Multiforme)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_females,  # Custom color scheme
+    labels = c(
+      "XaXi" = "XIST expressed and chrY not expressed",
+      "XO/XaXa" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XO/XaXa Y" = "XIST not expressed and chrY expressed"
+    )
+  ) +  
+  
+  # Regular text for the other categories
+  geom_text(
+  aes(label = label, hjust = 1.38),
+  position = position_stack(vjust = 0.45),
+  size = 3,
+  data = subset(female_counts_pie_conservative_gbm, conservative_calls == "XaXi")  # Filter for "XaXi" category
+  ) +
+  
+  # Regular text for the other categories
+  geom_text(
+  aes(label = label, hjust = 0.65),
+  position = position_stack(vjust = 0.45),
+  size = 3,
+  data = subset(female_counts_pie_conservative_gbm, conservative_calls == "XO/XaXa")  # Filter for "XO/XaXa" category
+  )
+  
+
+conservative_females_piechart_gbm
+
+## Save pie chart
+ggsave(filename = "conservative_females_piechart_gbm.png", plot = conservative_females_piechart_gbm, dpi = 300)
+
+# Save as PDF
+ggsave(filename = "conservative_females_piechart_gbm.pdf", plot = conservative_females_piechart_gbm)
+```
+
+
+
+
+```{r}
+## MALES
+# Filter MALE samples
+male_data_pie_conservative_gbm <- all_cancers_sex_genes_tpm %>%
+  filter(gender == "MALE", sample_type == "Primary Tumor", Cancer.Type == "GBM")
+
+# Calculate total number of MALEs
+total_males_pie_conservative_gbm <- male_data_pie_conservative_gbm %>%
+  filter(gender == "MALE") %>%
+  nrow()
+
+# Summarize the count of each 'conservative_calls' category within MALE samples
+male_counts_pie_conservative_gbm <- male_data_pie_conservative_gbm %>%
+  group_by(conservative_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_males_pie_conservative_gbm) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_males <- c(
+  "XaXi" = "grey",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(male_counts_pie_conservative_gbm, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in MALE Samples \n(Conservative Calls for Glioblastoma Multiforme)") +
+  scale_fill_manual(values = color_scheme_males) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+male_counts_pie_conservative_gbm <- male_counts_pie_conservative_gbm %>%
+  mutate(
+    conservative_calls = factor(conservative_calls, levels = c("XY", "X", "XaXi Y", "XaXi")),
+    label = case_when(
+      conservative_calls == "XY" ~ paste0("XY: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      conservative_calls == "X" ~ paste0("Loss of Y or downregulation: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and label formatting
+conservative_males_piechart_gbm <- ggplot(male_counts_pie_conservative_gbm, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in MALE Samples \n(Conservative Calls for Glioblastoma Multiforme)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_males,  # Custom color scheme
+    labels = c(
+      "XY" = "XIST not expressed and chrY expressed",
+      "X" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XaXi" = "XIST expressed and chrY not expressed"
+    )
+  ) +
+
+  # Regular text for "XY" without repelling
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.50),
+    size = 4,
+    data = subset(male_counts_pie_conservative_gbm, conservative_calls == "XY")
+  ) +
+  
+  # Use geom_label_repel for the other labels to adjust their positioning
+  geom_label_repel(
+    aes(label = label),
+    size = 4, show.legend = FALSE,
+    #position = position_stack(vjust = 0.5),
+    nudge_x = 0.05,  # Adjust to shift left or right
+    nudge_y = 1.5,  # Adjust to shift vertically
+    direction = "y",
+    force = 2,  # Increase force for more separation
+    #segment.size = 0,  # Remove connecting lines
+    #segment.color = NA,  # Ensure no line segments
+    data = subset(male_counts_pie_conservative_gbm, conservative_calls %in% c("X", "XaXi", "XaXi Y"))
+  )
+
+conservative_males_piechart_gbm
+
+## Save pie chart
+ggsave(filename = "conservative_males_piechart_gbm.png", plot = conservative_males_piechart_gbm, dpi = 300)
+
+# Save as PDF
+ggsave(filename = "conservative_males_piechart_gbm.pdf", plot = conservative_males_piechart_gbm)
+```
+
+
+## Summarizing the GBM Conservative Calls for each inferred sex chromosome combination by gender
+### Conservative Calls
+```{r}
+# Filter for 'Primary Tumor' sample types only
+primary_tumor_data_gbm <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor", Cancer.Type == "GBM")
+
+# For FEMALE samples
+female_summary_conservative_gbm <- primary_tumor_data_gbm %>%
+  filter(gender == "FEMALE") %>%
+  group_by(conservative_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    conservative_calls == "XaXi" ~ "XIST expressed and Y not expressed",
+    conservative_calls == "XO/XaXa" ~ "XIST not expressed and Y not expressed",
+    conservative_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    conservative_calls == "XO/XaXa Y" ~ "XIST not expressed and Y expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, conservative_calls, count, Percentage)
+
+# # Write FEMALE summary to CSV
+# write.csv(female_summary_conservative_gbm, "female_summary_conservative_gbm.csv", row.names = FALSE)
+
+
+# For MALE samples
+male_summary_conservative_gbm <- primary_tumor_data_gbm %>%
+  filter(gender == "MALE") %>%
+  group_by(conservative_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    conservative_calls == "XY" ~ "XIST not expressed and Y expressed",
+    conservative_calls == "X" ~ "XIST not expressed and Y not expressed",
+    conservative_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    conservative_calls == "XaXi" ~ "XIST expressed and Y not expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, conservative_calls, count, Percentage)
+
+# # Write MALE summary to CSV
+# write.csv(male_summary_conservative_gbm, "male_summary_conservative_gbm.csv", row.names = FALSE)
+```
+
+
+
+
+## Pie Charts of LGG
+## Pie Charts for Conservative Calls
+```{r}
+## FEMALES
+# Filter FEMALE samples and Primary Tumor sample type
+female_data_pie_conservative_lgg <- all_cancers_sex_genes_tpm %>%
+  filter(gender == "FEMALE", sample_type == "Primary Tumor", Cancer.Type == "LGG")
+
+# Calculate total number of FEMALEs
+total_females_pie_conservative_lgg <- female_data_pie_conservative_lgg %>%
+  filter(gender == "FEMALE") %>%
+  nrow()
+
+# Summarize the count of each 'conservative_calls' category within FEMALE samples
+female_counts_pie_conservative_lgg <- female_data_pie_conservative_lgg %>%
+  group_by(conservative_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_females_pie_conservative_lgg) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_females <- c(
+  "XaXi" = "lightgreen",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(female_counts_pie_conservative_lgg, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in FEMALE Samples\n(Conservative Calls for Brain Lower Grade Glioma)") +
+  scale_fill_manual(values = color_scheme_females) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+female_counts_pie_conservative_lgg <- female_counts_pie_conservative_lgg %>%
+  mutate(
+    conservative_calls = factor(conservative_calls, levels = c("XaXi", "XO/XaXa", "XaXi Y", "XO/XaXa Y")),
+    label = case_when(
+      conservative_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      conservative_calls == "XO/XaXa" ~ paste0("No inactivation, XaXa or XaO: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      conservative_calls == "XO/XaXa Y" ~ paste0("No inactivation, XaXa or XaO, Y expressed: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and updated legend names
+conservative_females_piechart_lgg <- ggplot(female_counts_pie_conservative_lgg, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in FEMALE Samples \n(Conservative Calls for Brain Lower Grade Glioma)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_females,  # Custom color scheme
+    labels = c(
+      "XaXi" = "XIST expressed and chrY not expressed",
+      "XO/XaXa" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XO/XaXa Y" = "XIST not expressed and chrY expressed"
+    )
+  ) +  
+  
+  # Regular text for the other categories
+  geom_text(
+  aes(label = label, hjust = 1.5),
+  position = position_stack(vjust = 0.5),
+  size = 3,
+  data = subset(female_counts_pie_conservative_lgg, conservative_calls == "XaXi")  # Filter for "XaXi" category
+  ) +
+  
+  # Regular text for the other categories
+  geom_label_repel(
+  aes(label = label),
+  position = position_stack(vjust = 0.5),
+  size = 3, show.legend = FALSE,
+  data = subset(female_counts_pie_conservative_lgg, conservative_calls == "XO/XaXa")  # Filter for "XO/XaXa" category
+  )
+  
+
+conservative_females_piechart_lgg
+
+# ## Save pie chart
+# ggsave(filename = "conservative_females_piechart_lgg.png", plot = conservative_females_piechart_lgg, dpi = 300)
+# 
+# # Save as PDF
+# ggsave(filename = "conservative_females_piechart_lgg.pdf", plot = conservative_females_piechart_lgg)
+```
+
+
+
+
+```{r}
+## MALES
+# Filter MALE samples
+male_data_pie_conservative_lgg <- all_cancers_sex_genes_tpm %>%
+  filter(gender == "MALE", sample_type == "Primary Tumor", Cancer.Type == "LGG")
+
+# Calculate total number of MALEs
+total_males_pie_conservative_lgg <- male_data_pie_conservative_lgg %>%
+  filter(gender == "MALE") %>%
+  nrow()
+
+# Summarize the count of each 'conservative_calls' category within MALE samples
+male_counts_pie_conservative_lgg <- male_data_pie_conservative_lgg %>%
+  group_by(conservative_calls) %>%
+  summarize(count = n()) %>%
+  mutate(percentage = (count / total_males_pie_conservative_lgg) * 100)
+
+# Define the custom color scheme as a named vector
+color_scheme_males <- c(
+  "XaXi" = "grey",
+  "XO/XaXa" = "purple",
+  "XY" = "lightgreen",
+  "X" = "purple",
+  "XO/XaXa Y" = "grey",
+  "XaXi Y" = "grey"
+)
+
+# Create the pie chart with custom colors
+ggplot(male_counts_pie_conservative_lgg, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in MALE Samples \n(Conservative Calls for Brain Lower Grade Glioma)") +
+  scale_fill_manual(values = color_scheme_males) +  # Apply custom color scheme
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),  # Display percentage labels
+            position = position_stack(vjust = 0.5), size = 3)  # Adjust label position and size
+```
+
+
+# Adding labels to pie chart above
+```{r}
+# Modify the custom labels in the data frame
+male_counts_pie_conservative_lgg <- male_counts_pie_conservative_lgg %>%
+  mutate(
+    conservative_calls = factor(conservative_calls, levels = c("XY", "X", "XaXi Y", "XaXi")),
+    label = case_when(
+      conservative_calls == "XY" ~ paste0("XY: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi" ~ paste0("High XIST, XaXi: ", round(percentage, 2), "%"),
+      conservative_calls == "XaXi Y" ~ paste0("High XIST, Y expressed: ", round(percentage, 2), "%"),
+      conservative_calls == "X" ~ paste0("Loss of Y or downregulation: ", round(percentage, 2), "%"),
+      TRUE ~ paste0(round(percentage, 1), "%")  # Default for other categories
+    )
+  )
+
+# Create the pie chart with custom colors and label formatting
+conservative_males_piechart_lgg <- ggplot(male_counts_pie_conservative_lgg, aes(x = "", y = count, fill = conservative_calls)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black lines between the slices
+  coord_polar(theta = "y") +  # Convert the bar chart into a pie chart
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "TCGA Inferred Sex Chromosome Complements Distribution in MALE Samples \n(Conservative Calls for Brain Lower Grade Glioma)") +
+  
+  # Apply custom color scheme and custom legend labels
+  scale_fill_manual(
+    values = color_scheme_males,  # Custom color scheme
+    labels = c(
+      "XY" = "XIST not expressed and chrY expressed",
+      "X" = "XIST not expressed and chrY not expressed",
+      "XaXi Y" = "XIST expressed and chrY expressed",
+      "XaXi" = "XIST expressed and chrY not expressed"
+    )
+  ) +
+
+  # Regular text for "XY" without repelling
+  geom_text(
+    aes(label = label),
+    position = position_stack(vjust = 0.50),
+    size = 4,
+    data = subset(male_counts_pie_conservative_lgg, conservative_calls == "XY")
+  ) +
+  
+  # Use geom_label_repel for the other labels to adjust their positioning
+  geom_label_repel(
+    aes(label = label),
+    size = 4, show.legend = FALSE,
+    #position = position_stack(vjust = 0.5),
+    nudge_x = 0.05,  # Adjust to shift left or right
+    nudge_y = 1.5,  # Adjust to shift vertically
+    direction = "y",
+    force = 2,  # Increase force for more separation
+    #segment.size = 0,  # Remove connecting lines
+    #segment.color = NA,  # Ensure no line segments
+    data = subset(male_counts_pie_conservative_lgg, conservative_calls %in% c("X", "XaXi", "XaXi Y"))
+  )
+
+conservative_males_piechart_lgg
+
+## Save pie chart
+ggsave(filename = "conservative_males_piechart_lgg.png", plot = conservative_males_piechart_lgg, dpi = 300)
+
+# Save as PDF
+ggsave(filename = "conservative_males_piechart_lgg.pdf", plot = conservative_males_piechart_lgg)
+```
+
+
+## Summarizing the LGG Conservative Calls for each inferred sex chromosome combination by gender
+### Conservative Calls
+```{r}
+# Filter for 'Primary Tumor' sample types only
+primary_tumor_data_lgg <- all_cancers_sex_genes_tpm %>%
+  filter(sample_type == "Primary Tumor", Cancer.Type == "LGG")
+
+# For FEMALE samples
+female_summary_conservative_lgg <- primary_tumor_data_lgg %>%
+  filter(gender == "FEMALE") %>%
+  group_by(conservative_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    conservative_calls == "XaXi" ~ "XIST expressed and Y not expressed",
+    conservative_calls == "XO/XaXa" ~ "XIST not expressed and Y not expressed",
+    conservative_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    conservative_calls == "XO/XaXa Y" ~ "XIST not expressed and Y expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, conservative_calls, count, Percentage)
+
+# # Write FEMALE summary to CSV
+# write.csv(female_summary_conservative_lgg, "female_summary_conservative_lgg.csv", row.names = FALSE)
+
+
+# For MALE samples
+male_summary_conservative_lgg <- primary_tumor_data_lgg %>%
+  filter(gender == "MALE") %>%
+  group_by(conservative_calls) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(Expression = case_when(
+    conservative_calls == "XY" ~ "XIST not expressed and Y expressed",
+    conservative_calls == "X" ~ "XIST not expressed and Y not expressed",
+    conservative_calls == "XaXi Y" ~ "XIST expressed and Y expressed",
+    conservative_calls == "XaXi" ~ "XIST expressed and Y not expressed"
+  )) %>%
+  mutate(Percentage = (count / sum(count)) * 100) %>%
+  select(Expression, conservative_calls, count, Percentage)
+
+# # Write MALE summary to CSV
+# write.csv(male_summary_conservative_lgg, "male_summary_conservative_lgg.csv", row.names = FALSE)
+```
+
+
+
+
+
+## Primary Tumor vs Recurrent Tumor for GBM
+# Extract rows with matching 'cases.submitter_id's
+```{r}
+# Filter for 'GBM' cancer only
+gbm_data <- all_cancers_sex_genes_tpm %>%
+  filter(Cancer.Type == "GBM")
+
+# Identify cases.submitter_id that appear more than once
+matching_ids_gbm <- gbm_data %>%
+  group_by(cases.submitter_id) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+# Extract rows with matching cases.submitter_id values
+matching_ids_gbm <- gbm_data %>%
+  semi_join(matching_ids_gbm, by = "cases.submitter_id")
+
+unique(matching_ids_gbm$Cancer.Name)
+```
+
+
+# Extract only samples that having matching cases.submitter_ids for Primary Tumor and Recurrent Tumor samples
+```{r}
+# Identify cases.submitter_id that have both "Primary Tumor" and "Recurrent Tumor"
+ids_primary_recurrent_gbm <- matching_ids_gbm %>%
+  filter(sample_type %in% c("Primary Tumor", "Recurrent Tumor")) %>%
+  group_by(cases.submitter_id) %>%
+  filter(n_distinct(sample_type) == 2) %>%
+  ungroup()
+
+# Extract only rows with "Primary Tumor" and "Recurrent Tumor" for these IDs
+primary_recurrent_gbm <- matching_ids_gbm %>%
+  semi_join(ids_primary_recurrent_gbm, by = "cases.submitter_id") %>%
+  filter(sample_type %in% c("Primary Tumor", "Recurrent Tumor"))
+
+# # Create CSV file of combined_data_normal_primary
+# write.csv(primary_recurrent_gbm, file = "primary_recurrent_gbm.csv", row.names = FALSE)
+```
+
+
+## Primary Tumor and Recurrent Tumor
+```{r}
+# Filter out cases with more than one Primary Tumor
+primary_recurrent_filtered_gbm <- primary_recurrent_gbm %>%
+  group_by(cases.submitter_id) %>%
+  filter(sum(sample_type == "Primary Tumor") == 1) %>%
+  ungroup()
+
+# Pivot the data to long format
+primary_recurrent_long_gbm <- primary_recurrent_filtered_gbm %>%
+  pivot_longer(cols = c(XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY),
+               names_to = "gene",
+               values_to = "expression_level")
+```
+
+
+
+## Violin plots including p-values using the 'wilcox.test()'comparing Primary Tumor vs Recurrent Tumor
+```{r}
+# Load required packages
+library(ggsignif) # to calculate and display the p-values on the violin plots
+
+# Filter for only the genes of interest
+primary_recurrent_long_all_sex_genes_gbm <- primary_recurrent_long_gbm %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"))
+
+# Define thresholds to include in Violin plots 
+### High threshold
+expressed <- log10(1 + 10)
+
+### Intermediate threshold
+intermediate <- log10(1 + 1)
+
+# Dummy data for threshold lines to include in the legend
+dummy_data_gbm <- data.frame(sample_type = c("Primary Tumor", "Recurrent Tumor"),
+                         y = c(expressed, intermediate),
+                         threshold = c("High", "Intermediate"))
+
+# Function to create violin plots for each gene and gender, faceted by Cancer.Name, and add p-values
+create_gender_specific_violin_plot_gbm <- function(data, gene_name, gender_filter) {
+  # Define gender-specific color palettes
+  color_female <- c("Primary Tumor" = "#ffd241ff", "Recurrent Tumor" = "darkorange")
+  color_male <- c("Primary Tumor" = "#ffec417f", "Recurrent Tumor" = "orange")
+  
+  # Choose the correct palette based on gender
+  color_palette <- if (gender_filter == "FEMALE") color_female else color_male
+  
+  # Filter data for the specific gene and gender
+  data_filtered <- data %>%
+    filter(gene == gene_name, gender == gender_filter)
+  
+  # Calculate sample counts for each sample_type
+  sample_counts <- data_filtered %>%
+    group_by(sample_type, gender, gene) %>% ### Note to self: Here I removed "Cancer.Name" ####
+    summarize(n = n(), .groups = "drop")
+  
+  # Create the violin plot with gender-specific colors
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Primary Tumor", "Recurrent Tumor")), 
+             y = log10(1 + expression_level),  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots
+    ylim(-0.5, 4.5) +  # Set y-axis limits
+    geom_jitter(width = 0.025, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Connecting lines
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red") +  # High threshold line
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue") +  # Intermediate threshold line
+    geom_line(data = dummy_data_gbm, aes(y = y, color = threshold), linetype = "dashed", size = 0.5) +  # Dummy lines for legend
+    geom_text(data = sample_counts, aes(x = sample_type, y = 4, label = paste0("n = ", n)), 
+              vjust = -0.5, size = 4, color = "black") +  # Add sample counts as labels
+    geom_signif(comparisons = list(c("Primary Tumor", "Recurrent Tumor")), 
+                map_signif_level = FALSE, test = "wilcox.test", textsize = 3, y = 3.5) +  # Add p-values
+    
+    # Apply gender-specific color palette
+    scale_fill_manual(values = color_palette) +
+    
+    scale_color_manual(values = c("High" = "red", "Intermediate" = "blue"), 
+                       name = "Thresholds",
+                       labels = c("Expressed", "Intermediate")) +
+    labs(title = paste(gene_name, "Expression in", gender_filter, "Samples \n(Glioblastoma multiforme)"),
+         x = "Sample Type",
+         y = "Expression Level (log10(1 + TPM))") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(vjust = 0.5, size = 10),
+          axis.text.y = element_text(size = 10),  # Adjust y-axis font size for readability
+          strip.text.x = element_text(size = 7),  # Font size for facet labels
+          legend.text = element_text(size = 7),  # Adjust the size for legend text
+          legend.title = element_text(size = 8),  # Adjust the size for legend title
+          strip.background = element_blank()) +  # Remove facet background
+    guides(fill = guide_legend(override.aes = list(linetype = "blank")),  # Combine fill and color legends
+           color = guide_legend(override.aes = list(linetype = "dashed")))  # Add dashed line for thresholds
+}
+
+# Generate and print violin plots for each gene and gender separately
+lapply(c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"), function(gene) {
+  # Plot for FEMALE samples
+  violin_plot_female_primary_recurrent_gbm <- create_gender_specific_violin_plot_gbm(primary_recurrent_long_gbm, gene, "FEMALE")
+  print(violin_plot_female_primary_recurrent_gbm)
+  
+  # # Save the violin plot for FEMALE PNG (optional)
+  # ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_FEMALE_gbm.png"), plot = violin_plot_female_primary_recurrent_gbm, dpi = 300)
+  # 
+  # # Save the violin plot for FEMALE PDF (optional)
+  # ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_FEMALE_gbm.pdf"), plot = violin_plot_female_primary_recurrent_gbm)
+  
+  # Plot for MALE samples
+  violin_plot_male_primary_recurrent_gbm <- create_gender_specific_violin_plot_gbm(primary_recurrent_long_gbm, gene, "MALE")
+  print(violin_plot_male_primary_recurrent_gbm)
+  
+  # # Save the violin plot for MALE PNG (optional)
+  # ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_MALE_gbm.png"), plot = violin_plot_male_primary_recurrent_gbm, dpi = 300)
+  # 
+  # # Save the violin plot for MALE PDF (optional)
+  # ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_MALE_gbm.pdf"), plot = violin_plot_male_primary_recurrent_gbm)
+})
+```
+
+
+
+
+
+## Primary Tumor vs Recurrent Tumor for GBM
+# Extract rows with matching 'cases.submitter_id's
+```{r}
+# Filter for 'LGG' cancer only
+lgg_data <- all_cancers_sex_genes_tpm %>%
+  filter(Cancer.Type == "LGG")
+
+# Identify cases.submitter_id that appear more than once
+matching_ids_lgg <- lgg_data %>%
+  group_by(cases.submitter_id) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+# Extract rows with matching cases.submitter_id values
+matching_ids_lgg <- lgg_data %>%
+  semi_join(matching_ids_lgg, by = "cases.submitter_id")
+
+unique(matching_ids_lgg$Cancer.Name)
+```
+
+
+# Extract only samples that having matching cases.submitter_ids for Primary Tumor and Recurrent Tumor samples
+```{r}
+# Identify cases.submitter_id that have both "Primary Tumor" and "Recurrent Tumor"
+ids_primary_recurrent_lgg <- matching_ids_lgg %>%
+  filter(sample_type %in% c("Primary Tumor", "Recurrent Tumor")) %>%
+  group_by(cases.submitter_id) %>%
+  filter(n_distinct(sample_type) == 2) %>%
+  ungroup()
+
+# Extract only rows with "Primary Tumor" and "Recurrent Tumor" for these IDs
+primary_recurrent_lgg <- matching_ids_lgg %>%
+  semi_join(ids_primary_recurrent_lgg, by = "cases.submitter_id") %>%
+  filter(sample_type %in% c("Primary Tumor", "Recurrent Tumor"))
+
+# # Create CSV file of combined_data_normal_primary
+# write.csv(primary_recurrent_lgg, file = "primary_recurrent_lgg.csv", row.names = FALSE)
+```
+
+
+## Primary Tumor and Recurrent Tumor
+```{r}
+# Filter out cases with more than one Primary Tumor
+primary_recurrent_filtered_lgg <- primary_recurrent_lgg %>%
+  group_by(cases.submitter_id) %>%
+  filter(sum(sample_type == "Primary Tumor") == 1) %>%
+  ungroup()
+
+# Filter out cases with more than one Recurrent Tumor
+primary_recurrent_filtered_lgg <- primary_recurrent_filtered_lgg %>%
+  group_by(cases.submitter_id) %>%
+  filter(sum(sample_type == "Recurrent Tumor") == 1) %>%
+  ungroup()
+
+# Pivot the data to long format
+primary_recurrent_long_lgg <- primary_recurrent_filtered_lgg %>%
+  pivot_longer(cols = c(XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY),
+               names_to = "gene",
+               values_to = "expression_level")
+```
+
+
+## Violin plots including p-values using the 'wilcox.test()'comparing Primary Tumor vs Recurrent Tumor
+```{r}
+# Load required packages
+library(ggsignif) # to calculate and display the p-values on the violin plots
+
+# Filter for only the genes of interest
+primary_recurrent_long_all_sex_genes_lgg <- primary_recurrent_long_lgg %>%
+  filter(gene %in% c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"))
+
+# Define thresholds to include in Violin plots 
+### High threshold
+expressed <- log10(1 + 10)
+
+### Intermediate threshold
+intermediate <- log10(1 + 1)
+
+# Dummy data for threshold lines to include in the legend
+dummy_data_lgg <- data.frame(sample_type = c("Primary Tumor", "Recurrent Tumor"),
+                         y = c(expressed, intermediate),
+                         threshold = c("High", "Intermediate"))
+
+# Function to create violin plots for each gene and gender, faceted by Cancer.Name, and add p-values
+create_gender_specific_violin_plot_lgg <- function(data, gene_name, gender_filter) {
+  # Define gender-specific color palettes
+  color_female <- c("Primary Tumor" = "#ffd241ff", "Recurrent Tumor" = "darkorange")
+  color_male <- c("Primary Tumor" = "#ffec417f", "Recurrent Tumor" = "orange")
+  
+  # Choose the correct palette based on gender
+  color_palette <- if (gender_filter == "FEMALE") color_female else color_male
+  
+  # Filter data for the specific gene and gender
+  data_filtered <- data %>%
+    filter(gene == gene_name, gender == gender_filter)
+  
+  # Calculate sample counts for each sample_type
+  sample_counts <- data_filtered %>%
+    group_by(sample_type, gender, gene) %>% ### Note to self: Here I removed "Cancer.Name" ####
+    summarize(n = n(), .groups = "drop")
+  
+  # Create the violin plot with gender-specific colors
+  ggplot(data = data_filtered, 
+         aes(x = factor(sample_type, levels = c("Primary Tumor", "Recurrent Tumor")), 
+             y = log10(1 + expression_level),  # Expression levels on y-axis
+             fill = sample_type)) +
+    geom_violin(trim = FALSE) +  # Add violin plots
+    ylim(-0.5, 4.5) +  # Set y-axis limits
+    geom_jitter(width = 0.025, size = 0.5) +  # Add jitter to show individual points
+    geom_line(aes(group = cases.submitter_id), color = "grey") +  # Connecting lines
+    geom_hline(yintercept = expressed, linetype = "dashed", color = "red") +  # High threshold line
+    geom_hline(yintercept = intermediate, linetype = "dashed", color = "blue") +  # Intermediate threshold line
+    geom_line(data = dummy_data_lgg, aes(y = y, color = threshold), linetype = "dashed", size = 0.5) +  # Dummy lines for legend
+    geom_text(data = sample_counts, aes(x = sample_type, y = 4, label = paste0("n = ", n)), 
+              vjust = -0.5, size = 4, color = "black") +  # Add sample counts as labels
+    geom_signif(comparisons = list(c("Primary Tumor", "Recurrent Tumor")), 
+                map_signif_level = FALSE, test = "wilcox.test", textsize = 3, y = 3.5) +  # Add p-values
+    
+    # Apply gender-specific color palette
+    scale_fill_manual(values = color_palette) +
+    
+    scale_color_manual(values = c("High" = "red", "Intermediate" = "blue"), 
+                       name = "Thresholds",
+                       labels = c("Expressed", "Intermediate")) +
+    labs(title = paste(gene_name, "Expression in", gender_filter, "Samples \n(Brain Lower Grade Glioma)"),
+         x = "Sample Type",
+         y = "Expression Level (log10(1 + TPM))") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(vjust = 0.5, size = 10),
+          axis.text.y = element_text(size = 10),  # Adjust y-axis font size for readability
+          strip.text.x = element_text(size = 7),  # Font size for facet labels
+          legend.text = element_text(size = 7),  # Adjust the size for legend text
+          legend.title = element_text(size = 8),  # Adjust the size for legend title
+          strip.background = element_blank()) +  # Remove facet background
+    guides(fill = guide_legend(override.aes = list(linetype = "blank")),  # Combine fill and color legends
+           color = guide_legend(override.aes = list(linetype = "dashed")))  # Add dashed line for thresholds
+}
+
+# Generate and print violin plots for each gene and gender separately
+lapply(c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY"), function(gene) {
+  # Plot for FEMALE samples
+  violin_plot_female_primary_recurrent_lgg <- create_gender_specific_violin_plot_lgg(primary_recurrent_long_lgg, gene, "FEMALE")
+  print(violin_plot_female_primary_recurrent_lgg)
+  
+  # Save the violin plot for FEMALE PNG (optional)
+  ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_FEMALE_lgg.png"), plot = violin_plot_female_primary_recurrent_lgg, dpi = 300)
+
+  # Save the violin plot for FEMALE PDF (optional)
+  ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_FEMALE_lgg.pdf"), plot = violin_plot_female_primary_recurrent_lgg)
+  
+  # Plot for MALE samples
+  violin_plot_male_primary_recurrent_lgg <- create_gender_specific_violin_plot_lgg(primary_recurrent_long_lgg, gene, "MALE")
+  print(violin_plot_male_primary_recurrent_lgg)
+  
+  # Save the violin plot for MALE PNG (optional)
+  ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_MALE_lgg.png"), plot = violin_plot_male_primary_recurrent_lgg, dpi = 300)
+
+  # Save the violin plot for MALE PDF (optional)
+  ggsave(paste0("ViolinPlot_PrimaryvRecurrent", gene, "_MALE_lgg.pdf"), plot = violin_plot_male_primary_recurrent_lgg)
+})
+```
+
+
+
+
+## Adding age from Mason's CSV to 'inferred_sex_chromosome_complement.csv' based on submitter_id to cases.submitter_id
+```{r}
+# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes, tumor suppressors, and oncogenes)
+
+inferred_sex_chromosome_complement <- read.csv("inferred_sex_chromosome_complement.csv", header = TRUE)
+
+combined_cancer_data <- read.csv("combined_cancer_data.csv", header = TRUE)
+```
+
+
+## Add age into dataframe
+```{r}
+# Put dataframe into another dataframe to preserve original dataframe
+inferred_sex_chromosome_complement_age <- inferred_sex_chromosome_complement
+
+# Create a new column 'age_index' in 'inferred_sex_chromosome_complement' + add respective age to each sample
+inferred_sex_chromosome_complement_age$age_index <- combined_cancer_data$age_index[
+  match(inferred_sex_chromosome_complement_age$cases.submitter_id, combined_cancer_data$submitter_id)
+]
+
+# Reorder the columns so that 'age_index' is the 7th column
+inferred_sex_chromosome_complement_age <- inferred_sex_chromosome_complement_age %>%
+  select(1:6, age_index, everything())
+
+# Write/Create csv file
+write.csv(inferred_sex_chromosome_complement_age, file = "inferred_sex_chromosome_complement_age.csv", row.names = FALSE)
+```
+
+
+
+
