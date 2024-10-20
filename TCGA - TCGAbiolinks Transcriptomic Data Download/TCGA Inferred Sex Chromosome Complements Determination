@@ -1082,3 +1082,21 @@ draw(heatmap)
 # draw(heatmap)
 # dev.off()  # Close the device after drawing the heatmap
 ```
+
+## Add age into dataframe from Mason's 'combined_cancer_data.csv'
+```{r}
+# Put dataframe into another dataframe to preserve original dataframe
+inferred_sex_chromosome_complement_age <- inferred_sex_chromosome_complement
+
+# Create a new column 'age_index' in 'inferred_sex_chromosome_complement' + add respective age to each sample
+inferred_sex_chromosome_complement_age$age_index <- combined_cancer_data$age_index[
+  match(inferred_sex_chromosome_complement_age$cases.submitter_id, combined_cancer_data$submitter_id)
+]
+
+# Reorder the columns so that 'age_index' is the 7th column
+inferred_sex_chromosome_complement_age <- inferred_sex_chromosome_complement_age %>%
+  select(1:6, age_index, everything())
+
+# Write/Create csv file
+write.csv(inferred_sex_chromosome_complement_age, file = "inferred_sex_chromosome_complement_age.csv", row.names = FALSE)
+```
