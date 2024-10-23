@@ -39,7 +39,7 @@ working_path_thresholds <- "/Users/robertphavongurquidez/Desktop/TCGA_GBM/"
 ```
 
 
-# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes, tumor suppressors, and oncogenes)
+# Import CSV file with all cancers of interest, cases, and genes of interest (XIST, 7 Y-linked genes)
 ```{r}
 all_cancers_sex_genes_tpm <- read.csv("inferred_sex_chromosome_complement.csv", header = TRUE)
 ```
