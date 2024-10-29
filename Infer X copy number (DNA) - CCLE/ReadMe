@@ -1,1 +1,68 @@
+# CCLE Ploidy Expression Analysis
 
+## Overview
+This project analyzes gene expression data from the Cancer Cell Line Encyclopedia (CCLE), focusing on creating violin plots that illustrate the relationship between RNAseq gene expression (in TPM) and ploidy status based on DNA analysis by Shohat et al. The analysis aims to explore how expression levels of genes located on the X and Y chromosomes vary with ploidy across different cell lines.
+
+## Contents
+1. **RMarkdown Files**
+   - `CCLE_Ploidy_Plots.Rmd`: Generates violin plots of gene expression (TPM) versus ploidy status.
+   - `CCLE_Figures_and_Tables.Rmd`: Analyzes and compares gene expression categories against ploidy, producing bar plots for visual representation.
+
+2. **Data**
+   - `CCLE_gene_expression.csv`: The original gene expression dataset from the Cancer Cell Line Encyclopedia (TPM).
+   - `Supplemental_Table_S1_cleaned.csv`: Cleaned supplementary data from Shohat et al. (2022) processed as described below.
+   - `CCLE_individual_scc_2expressed.csv`: Output from `CCLE_Figures_and_Tables.Rmd` as a CSV that contains expression categories.
+
+3. **Output**
+   - Generated plots in PDF format, saved in the output directory.
+
+## Data Cleaning Process
+For the `Supplemental_Table_S1_cleaned.csv`, the following steps should be followed:
+- **Row Removal**: Remove the first two rows that contain merged title rows.
+- **Column Renaming**: Rename columns for consistency: 
+  - `CCLE Name` was renamed to `Cell_line`
+  - `Biological Sex` was renamed to `Biological_Sex`
+- **Data Filtering**: Ensure only relevant columns are retained and handle any missing values appropriately.
+- **Consistent Formatting**: Ensure consistent formatting across all columns for seamless integration with other datasets.
+
+## Prerequisites
+Ensure you have the following R packages installed:
+- `ggplot2`
+- `dplyr`
+- `readr`
+- `tidyverse`
+
+You can install the packages using the following command:
+```r
+install.packages(c("ggplot2", "dplyr", "readr", "tidyverse"))
+```
+
+## How to Run the Analysis
+1. **Set the Working Directory**
+   Update the paths in the RMarkdown files to point to the correct directories on your system.
+
+2. **Load the Data**
+   The data is loaded from CSV files. Make sure the specified paths in the `data_directory` variable are correct.
+
+3. **Execute the RMarkdown Files**
+   You can run the analysis in RStudio by opening each RMarkdown file and clicking on the "Knit" button to generate HTML reports.
+
+## Analysis Steps
+### Step 1: Ploidy Plots
+- Load and clean the gene expression (TPM) data and ploidy status data from Shohat et al.
+- Generate violin plots to visualize the distribution of gene expression levels across different ploidy statuses.
+
+### Step 2: Figures and Tables
+- Compare the output of the `CCLE_Figures_and_Tables.Rmd` with the CSV containing gene expression categories.
+- Create bar plots that compare gene expression categories against ploidy statuses.
+- Save the generated plots and the comparison CSV in the output directory.
+
+## Output
+Violin plots gene expression levels vs ploidy statuses
+Bar plots of gene expression categories vs ploidy
+
+## License
+
+
+## Acknowledgments
+Thanks to the CCLE for providing the data used in this analysis and to Shohat et al. for their valuable insights and data contributions.
