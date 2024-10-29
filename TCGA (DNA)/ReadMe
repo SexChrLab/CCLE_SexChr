@@ -1,1 +1,53 @@
+# TCGA Ploidy Expression Analysis
 
+## Overview
+This project analyzes gene expression data from The Cancer Genome Atlas (TCGA), focusing on the expression of genes located on the X and Y chromosomes. The analysis aims to explore how the expression levels of these genes vary with ploidy status.
+
+## Contents
+1. **RMarkdown Files**
+   - `TCGA_Ploidy_Expression_Categories.Rmd`: Generates stacked bar plots that illustrate the counts of Y and X chromosome gene expressions categorized by their respective ploidy statuses.
+
+2. **Data**
+   - `SA1_male_LoY_TCGA.csv`: Gene expression dataset for male samples with Y chromosome status, sourced from the supplemental material of Qi, M., Pang, J., Mitsiades, I., Lane, A. A., & Rheinbay, E. (2023). Loss of Chromosome Y in Primary Tumors. Cell, 186(14).
+   - `SA2_female_LoX_TCGA.csv`: Gene expression dataset for female samples with X chromosome status, also sourced from the same supplemental material.
+   - `inferred_sex_chromosome_complement.csv`: Output from TCGA Inferred Sex Chromosome Complements Determination
+
+3. **Output**
+   - Generated plots in PDF format, saved in the output directory.
+
+## Prerequisites
+Ensure you have the following R packages installed:
+- `ggplot2`
+- `dplyr`
+- `readr`
+- `tidyverse`
+
+## How to Run the Analysis
+1. **Set the Working Directory**
+   Update the paths in the RMarkdown file to point to the correct directories on your system.
+
+2. **Load the Data**
+   The data is loaded from CSV files. Ensure that the specified paths in the `data_directory` variable are correct.
+
+3. **Execute the RMarkdown File**
+   You can run the analysis in RStudio by opening the RMarkdown file and clicking on the "Knit" button to generate an HTML report.
+
+## Analysis Steps
+### Step 1: Data Loading and Cleaning
+- Load the male and female gene expression data from TCGA and the supplemental table.
+- Merge and clean the datasets, retaining only the relevant columns for analysis.
+
+### Step 2: Generate Plots
+- Create stacked bar plots for Y chromosome gene expressions categorized by Y ploidy for males.
+- Create stacked bar plots for X chromosome gene expressions categorized by X ploidy for females.
+- Save the generated plots in the output directory.
+
+## Output
+- Violin plots showing Y and X gene expressions vs ploidy statuses.
+- Stacked bar plots showing counts of Y and X expressions categorized by ploidy statuses.
+
+## License
+
+
+## Acknowledgments
+Thanks to TCGA for providing the data used in this analysis and to the researchers who contributed to the understanding of ploidy and gene expression in cancer research.
