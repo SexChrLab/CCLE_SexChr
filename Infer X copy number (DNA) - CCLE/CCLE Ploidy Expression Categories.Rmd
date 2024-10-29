@@ -238,10 +238,8 @@ for (gene in c("XIST_Expression_Level")) {
 
 ```
 
-```{r}
+## List all the packages used for future reference
 
-```
-
-```{r}
-
+```{r SessionInfo}
+sessionInfo()
 ```
