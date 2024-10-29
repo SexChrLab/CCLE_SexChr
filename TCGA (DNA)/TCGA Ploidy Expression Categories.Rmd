@@ -193,3 +193,9 @@ ggsave(filename = file.path(output_directory, "TCGA_female_count_stacked_bar_X_e
 print(female_x_expression_plot)
 
 ```
+
+## List all the packages used for future reference
+
+```{r SessionInfo}
+sessionInfo()
+```
