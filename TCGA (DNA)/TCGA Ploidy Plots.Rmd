@@ -6,7 +6,7 @@ output: html_document
 ---
 
 Project Overview
-This project analyzes gene expression data from the Cancer Cell Line Encyclopedia (CCLE) and copy number data for sex chromosomes from the paper "Gene Essentiatlity" by Shohat et al., 2022. The goal is to explore the relationship between gene expression and the ploidy of sex chromosomes.
+This project analyzes gene expression data from The Cancer Genome Atlas (TCGA) and copy number data for sex chromosomes from the paper "Loss of chromosome Y in primary tumors" by Qi et al., 2023. The goal is to explore the relationship between gene expression and the ploidy of sex chromosomes.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -246,3 +246,8 @@ ggsave(filename = file.path(output_directory, paste0("TCGA_female_XIST_violin_pl
 
 ```
 
+## List all the packages used for future reference
+
+```{r SessionInfo}
+sessionInfo()
+```
