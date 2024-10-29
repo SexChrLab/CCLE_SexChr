@@ -635,3 +635,9 @@ ggsave(filename = file.path(output_directory, paste0("Female_Faceted_XIST_Expres
        plot = female_data_X_plot, width = 12, height = 8)
 
 ```
+
+## List all the packages used for future reference
+
+```{r SessionInfo}
+sessionInfo()
+```
