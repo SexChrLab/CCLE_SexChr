@@ -1,0 +1,58 @@
+# TCGA Sex Chromosome Gene Expression Analysis
+
+## Overview
+This project analyzes RNAseq data from **The Cancer Genome Atlas (TCGA)**, focusing on gene expression related to the **X** and **Y chromosomes**. The analysis aims to compare the expression levels of Y pseudoautosomal genes like **DDX3Y**, and **XIST**, infer sex chromosome complements, and explore the relationships between gene expression levels and sex chromosome complements across various cancers.
+
+## Contents
+
+1. **RMarkdown Files**
+   - `tcga_gbm_only.Rmd`: Analyzes glioblastoma multiforme (GBM) RNAseq data, focusing on sex chromosome gene expression between solid tissue normal and primary tumor samples.
+   - `TCGA_Sex_Chromosome_Genes_TPM.Rmd`: Downloads and processes TPM data for sex chromosome genes across all cancers.
+   - `TCGA_Thresholds_Determination.Rmd`: Establishes threshold levels for relevant gene expression differences by sex.
+   - `TCGA_Inferred_Sex_Chromosome_Complements.Rmd`: Infers sex chromosome complements from RNAseq data across cancers.
+   - `TCGA_Pie_Charts_by_Cancers.Rmd`: Generates pie charts visualizing gene expression by cancer types and gender, excluding gender-specific cancers.
+
+2. **Data**
+   - RNAseq TPM data pulled from the TCGA database for sex chromosome genes.
+   - Inferred sex chromosome complements for all samples based on gene expression analysis.
+   
+3. **Output**
+   - Plots (PDF and PNG format) generated from the analysis, saved in the `output` directory.
+   - Tables of inferred sex chromosome complements and thresholds for gene expression.
+
+## Prerequisites
+
+Ensure the following R packages are installed before running the analysis:
+- `TCGAbiolinks`
+- `ggplot2`
+- `dplyr`
+- `tidyr`
+
+## How to Run the Analysis
+
+1. **Set the Working Directory**
+   Ensure that the file paths in the RMarkdown files point to the correct directories on your system. Update paths where necessary.
+
+2. **Download RNAseq Data**
+   Use the `TCGA_Sex_Chromosome_Genes_TPM.Rmd` file to pull down TPM data from the TCGA database, focusing on sex chromosome genes (e.g., DDX3Y, XIST).
+
+3. **Analyze Gene Expression**
+   Use the RMarkdown files to:
+   - Determine thresholds for significant expression levels.
+   - Infer sex chromosome complements based on gene expression levels.
+
+4. **Generate Visualizations**
+   Visualize the relationship between gene expression and sex chromosome complements using `TCGA_Pie_Charts_by_Cancers.Rmd`. This script creates pie charts by cancer type and gender, excluding gender-specific cancers.
+
+5. **Execute the RMarkdown Files**
+   Open each RMarkdown file in RStudio and click the "Knit" button to generate HTML reports.
+
+## Output
+
+- **PDF/PNG Files**: Visualizations of gene expression across cancers, saved in the `output` directory.
+- **Inferred Sex Chromosome Complements**: A table summarizing inferred sex chromosome complements for all TCGA samples.
+- **Thresholds**: Tables defining significant gene expression thresholds for further analysis.
+
+## Acknowledgments
+
+Special thanks to the TCGA project for providing the RNAseq data used in this analysis.
