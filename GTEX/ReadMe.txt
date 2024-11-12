@@ -47,4 +47,4 @@ Ensure you have the following R packages installed:
 
 
 ## Acknowledgments
-Thanks to the GTEx project for providing the data used in this analysis and to the researchers who contributed to the understanding of sex chromosomes and gene expression.
+Thanks to the GTEx project for providing the data used in this analysis.
