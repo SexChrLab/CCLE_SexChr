@@ -1,26 +1,41 @@
 ---
-title: "GTEx Figures"
+title: "GTEx Figures and Tables"
 author: "Mariah Lee"
-date: " Last Updated 10.07.2024"
+date: "Last Updated 12.17.2024"
 output: 
   pdf_document: default
   html_document:
     df_print: paged
 editor_options:
   markdown:
-    wrap: 60
+    wrap: 70
 ---
 
 ```{r setup, include=FALSE}
 # Set the root directory for knitting the document
 knitr::opts_knit$set(root.dir = "D:/CCLE_Project/GTEx_output/")
 # Set chunk options to improve readability of code output
-knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 70), tidy = TRUE)
 ```
+
+### Overview
+
+The `GTEx Figures and Tables` document presents a comprehensive
+analysis of gene expression data from the GTEx project. The pipeline
+processes large-scale transcriptomic data to extract insights into
+gene expression patterns across tissues, sexes, and age groups. Key
+steps include preprocessing data, annotating with metadata, generating
+visualizations, and creating summary tables. The document is designed
+to facilitate exploratory analysis and generate publication-quality
+plots and tables for downstream interpretation.
 
 ## Install and Load Needed Packages
 
-```{r LoadPackages, message=FALSE, warning=FALSE}
+This section ensures all required packages for data manipulation,
+visualization, and analysis are installed and loaded. Both CRAN and
+Bioconductor packages are included.
+
+```{r Load Packages, message=FALSE, warning=FALSE}
 # Function to install and load CRAN packages
 load_or_install <- function(pkg) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
@@ -39,7 +54,7 @@ load_or_install_bioconductor <- function(pkg) {
 }
 
 # List of required CRAN packages
-cran_packages <- c("dplyr", "tidyr", "ggplot2", "tibble")
+cran_packages <- c("dplyr", "tidyr", "ggplot2", "tibble", "ggrepel", "ggsignif", "ggpmisc")
 
 # List of required Bioconductor packages
 bioc_packages <- c("biomaRt", "ComplexHeatmap")
@@ -51,275 +66,510 @@ sapply(cran_packages, load_or_install)
 sapply(bioc_packages, load_or_install_bioconductor)
 ```
 
-## Read Data
+## START HERE after loading packages - Data Preprocessing
 
-```{r ReadData, message=FALSE}
-# Directory where the data is stored; include / at the end
+The initial GTEx file has expression data from over 17,000 individuals
+across many genes. In this project, we are only looking at a subset of
+those genes. To reduce loading times on future iterations of this
+code, we will subset here, then load the subset of data when this code
+is run later. If running this code multiple times, skip these code
+chunks and continue the analysis with the data that is subset to only
+the genes of interest.
+
+### Read in Main Data
+
+```{r Read in Main Data}
+library(data.table)
+
+# Define the directory where the data is stored; include / at the end
 data_directory <- "D:/CCLE_Project/data/"
 
-# Check if data files exist before loading
-if (file.exists(paste0(data_directory,"GeneTPM_Subset.csv"))) {
-  GTEx_data <- read.delim(paste0(data_directory, "GeneTPM_Subset.csv"), 
-                          header = TRUE, sep = "\t")
+# Define the full file path
+gtex_file_path <- file.path(data_directory, "GTEx_Analysis_2017-06-05_v8_RNASeQCv1.1.9_gene_tpm.gct")
 
+# Check if the file exists
+if (file.exists(gtex_file_path)) {
+  # Load the data using fread
+  gtex_full_data <- fread(gtex_file_path, 
+                          sep = "\t", 
+                          skip = 2, 
+                          showProgress = TRUE)
+  
+  # Print a success message and preview the data
+  message("GTEx RNAseq gene expression data loaded successfully with data.table.")
+  head(gtex_full_data)
+  
 } else {
-  stop("GTEx RNAseq gene expression file not found.")
+  # Error message if the file is not found
+  stop("Error: GTEx RNAseq gene expression file not found. Please check the file path and try again.")
 }
+```
 
+### Subset Main Data
 
-if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDD.csv"))) {
-  attributes_dd <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDD.csv"), 
-                              header = TRUE)
-} else {
-  stop("GTEx Sample Attributes DD annotation file not found.")
-}
+```{r Subset and Transpose}
+# Define the genes of interest
+genes_of_interest <- c("XIST", "SRY", "RPS4Y1", "ZFY", "TGIF2LY", "PCDH11Y", 
+                       "AMELY", "TBL1Y", "USP9Y", "DDX3Y", "UTY", "TMSB4Y", 
+                       "NLGN4Y", "KDM5D", "EIF1AY", "RPS4Y2")
 
+# Subset the data to include only rows with the genes of interest
+subset_data <- gtex_full_data %>%
+  filter(Description %in% genes_of_interest) %>%
+  # Remove the name column
+  dplyr::select(-Name) %>%
+  # Move gene names to row names
+  column_to_rownames("Description")
 
-if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDS.csv"))) {
-  attributes_ds <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SampleAttributesDS.csv"), 
-                              header = TRUE)
+# Transpose the data
+transposed_data <- as.data.frame(t(subset_data))
+
+head(transposed_data)
+```
+
+### Add Annotations
+
+```{r Add Subject ID and Sample IDs}
+# Create a SUBJID column by extracting the first part of the row name before the first dash
+transposed_data$SUBJECT_ID <- sub("^(GTEX-[^-]+).*", "\\1", rownames(transposed_data))
+
+transposed_data$SAMPLE_ID <- rownames(transposed_data)
+
+# Move SUBJECT_ID and SAMPLE_ID to the first columns
+gtex_data <- transposed_data %>%
+  dplyr::select(SAMPLE_ID, SUBJECT_ID, everything())
+
+# View the updated data to confirm the changes
+head(gtex_data)
+```
+
+```{r Read in Annotations}
+# Define file paths
+attributes_file <- file.path(data_directory, "GTEx_Analysis_v8_Annotations_SampleAttributesDS.csv")
+phenotypes_file <- file.path(data_directory, "GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.csv")
+participant_file <- file.path(data_directory, "participant.tsv")
+
+# Read in Annotations
+if (file.exists(attributes_file)) {
+  attributes_ds <- read.csv(attributes_file, header = TRUE)
 } else {
   stop("GTEx Sample Attributes DS annotation file not found.")
 }
 
-
-if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDD.csv"))) {
-  phenotypes_dd <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDD.csv"), 
-                              header = TRUE)
+if (file.exists(participant_file)) {
+  participant_data <- read.csv(participant_file, header = TRUE, sep = "\t")
 } else {
-  stop("GTEx Subject Phenotypes DD annotation file not found.")
+  stop("GTEx Subject Data file not found.")
 }
+```
 
+```{r Add Sex and Age}
+# Select only the subject id, sex, and age columns from participant_data
+participant_sex <- participant_data %>% 
+  dplyr::select(entity.participant_id, sex, age) %>%
+  rename(SUBJECT_ID = entity.participant_id, 
+         SEX = sex, 
+         AGE = age)
 
-if (file.exists(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.csv"))) {
-  phenotypes_ds <- read.csv(paste0(data_directory,"GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.csv"), 
-                              header = TRUE)
+# Join the data frames on the SUBJECT_ID column
+gtex_with_sex_age <- gtex_data %>%
+  left_join(participant_sex, by = "SUBJECT_ID") %>% 
+  # Reorder the columns
+  dplyr::select(SAMPLE_ID, SUBJECT_ID, SEX, AGE, everything())
+
+# Verify the merged data
+head(gtex_with_sex_age)
+```
+
+```{r Add Tissue}
+# Select only the sample id and tissue columns from participant_data
+sample_tissues <- attributes_ds %>% 
+  dplyr::select(SAMPID, SMTS, SMTSD) %>%
+  rename(SAMPLE_ID = SAMPID)
+
+# Join the data frames on the SUBJECT_ID column
+gtex_annotated <- gtex_with_sex_age %>%
+  left_join(sample_tissues, by = "SAMPLE_ID") %>% 
+  # Reorder the columns
+  dplyr::select(SAMPLE_ID, SUBJECT_ID, SEX, AGE, SMTS, SMTSD, everything())
+
+# Verify the merged data
+head(gtex_annotated)
+```
+
+```{r Save Annotated Data}
+# Name the file
+annotated_gtex_file <- file.path(data_directory, "GTEx_Annotated_2017_06_05_v8.csv")
+
+# Save the file as a CSV
+write.csv(gtex_annotated, annotated_gtex_file, row.names = FALSE)
+```
+
+## RETURN HERE - Data Processing
+
+Transform the Data: Applies log-transformation to TPM values for
+better visualization and statistical handling. Assign Expression
+Levels: Classifies genes as "not_expressed," "intermediate," or
+"expressed" based on TPM thresholds.
+
+```{r Load Annotated Data}
+# Define the directory where the data is stored; include / at the end
+data_directory <- "D:/CCLE_Project/data/"
+
+# Define the full file paths
+gtex_annotated_file <- file.path(data_directory, "GTEx_Annotated_2017_06_05_v8.csv")
+gene_locations_file <- file.path(data_directory, "gene_locations.csv")
+
+# Check if the file exists
+if (file.exists(gtex_annotated_file)) {
+  # Load the data using fread
+  gtex_annotated <- fread(gtex_annotated_file, 
+                               sep = ",", 
+                               header = TRUE, 
+                               showProgress = TRUE)
+  
+  # Print a success message and preview the data
+  message("Annotated GTEx gene expression data loaded successfully.")
+  head(gtex_annotated)
+  
 } else {
-  stop("GTEx Subject Phenotypes DS annotation file not found.")
+  # Error message if the file is not found
+  stop("Error: Annotated GTEx gene expression file not found. Please check the file path and try again.")
 }
 
 # Gene locations on respective chromosomes
-if (file.exists(paste0(data_directory,"gene_locations.csv"))) {
-  gene_locations <- read.csv(paste0(data_directory,"gene_locations.csv"), 
-                              header = TRUE)
+if (file.exists(gene_locations_file)) {
+  # Load in the data if it exists
+  gene_locations <- read.csv(gene_locations_file, header = TRUE)
 } else {
+  # Print error if not found
   stop("Gene location file not found.")
 }
 ```
 
-## Format the Data
+### Transform the data
 
-```{r FormatData}
-# Remove the 'Name' column since you don't need it
-GTEx_data_Name <- GTEx_data %>% dplyr::select(-Name)
+```{r Log Transformation}
+# Append _TPM to the gene column names
+gtex_annotated <- gtex_annotated %>%
+  rename_with(~ paste0(., "_TPM"), XIST:RPS4Y2)
 
-# Transpose the data: first set row names to GTEx samples, then transpose
-GTEx_data_transposed <- GTEx_data_Name %>%
-  column_to_rownames(var = "Description") %>%
-  t() %>%
-  as.data.frame()
+# Apply log10(1 + TPM) transformation for each gene column
+gtex_log <- gtex_annotated %>%
+  mutate(across(ends_with("_TPM"), ~ log10(1 + .), .names = "{.col}_Log")) %>%
+  rename_with(~ sub("_TPM_Log$", "_LogTPM", .), ends_with("_TPM_Log"))
 
-# View the transposed data
-head(GTEx_data_transposed)
+# Define annotation columns
+annotation_columns <- c("SAMPLE_ID", "SUBJECT_ID", "SEX", "AGE", "SMTS", "SMTSD")
+
+# Define TPM expression columns
+tpm_columns <- grep("_TPM$", colnames(gtex_log), value = TRUE)
+
+# Define log expression columns
+log_columns <- grep("_LogTPM$", colnames(gtex_log), value = TRUE)
+
+# Define the order so TPM expression and their log-transformations are next to each other
+new_order <- c(annotation_columns, as.vector(rbind(tpm_columns, log_columns)))
+
+# Reorder columns
+gtex_log <- gtex_log %>%
+  dplyr::select(all_of(new_order))
+
+# View dataset with logs
+head(gtex_log)
 ```
 
-## Complete the Dataset
+### Assign an expression level to each gene
 
-```{r AddSUBJID}
-# Create a column for SubjectID
+```{r Expression Levels}
+# Add expression levels for each gene based on TPM
+gtex_complete <- gtex_log %>%
+  mutate(across(ends_with("_TPM"), 
+                ~ case_when(
+                  . <= 1 ~ "not_expressed",
+                  . >= 10 ~ "expressed",
+                  TRUE ~ "intermediate"
+                ), 
+                .names = "{.col}_Expression_Level")) %>%
+  rename_with(~ sub("_TPM_Expression_Level$", "_Expression_Level", .), ends_with("_TPM_Expression_Level"))
 
-# Extract the first two parts of the GTEx row names (up to the second period-separated field)
-subject_ids <- sub("^([^.]+\\.[^.]+).*", "\\1", rownames(GTEx_data_transposed))
+# Reorder the columns to place the Expression_Level column after TPM and LogTPM for each gene
+tpm_columns <- grep("_TPM$", colnames(gtex_complete), value = TRUE)
+log_columns <- grep("_LogTPM$", colnames(gtex_complete), value = TRUE)
+expression_columns <- grep("_Expression_Level$", colnames(gtex_complete), value = TRUE)
 
-# Create a new column in GTEx_data_transposed for Subject ID
-GTEx_data_transposed$SUBJID <- subject_ids
-
-# Replace periods with dashes in the SUBJID column
-GTEx_data_transposed$SUBJID <- gsub("\\.", "-", GTEx_data_transposed$SUBJID)
-
-# Move SUBJID to the first column
-GTEx_data_transposed <- GTEx_data_transposed %>% dplyr::select(SUBJID, everything())
-
-# View the data to check if the Subject ID column has been created correctly
-head(GTEx_data_transposed)
-```
-
-```{R AddSex}
-# Merge the sex column from the annotations
-
-# Store the original row names as a new column
-GTEx_data_transposed$Original_RowNames <- rownames(GTEx_data_transposed)
-
-# Merge the datasets by the "SUBJID" column
-GTEx_merged <- merge(GTEx_data_transposed, phenotypes_sex, by = "SUBJID", all.x = TRUE)
-
-# Reorder the columns to make SEX the second column
-GTEx_merged <- GTEx_merged %>% dplyr::select(SUBJID, SEX, everything())
-
-# Recode the SEX column: 1 becomes "Male" and 2 becomes "Female"
-GTEx_merged <- GTEx_merged %>%
-  mutate(SEX = ifelse(SEX == 1, "Male", "Female"))
-
-# Reset the original row names from the 'Original_RowNames' column
-rownames(GTEx_merged) <- GTEx_merged$Original_RowNames
-
-# Drop the 'Original_RowNames' column if no longer needed
-GTEx_merged <- GTEx_merged %>% dplyr::select(-Original_RowNames)
-
-# View the updated dataset
-head(GTEx_merged)
-```
-
-```{r AddTissue}
-# Add tissue type
-
-# Create a column in the final merged dataset (GTEx_merged) that matches the sample IDs in attributes_ds
-GTEx_merged$SampleID <- gsub("\\.", "-", rownames(GTEx_merged))
-
-# Select the relevant columns from attributes_ds (SAMPID, SMTS, SMTSD)
-attributes_selected <- attributes_ds %>% dplyr::select(SAMPID, SMTS, SMTSD)
-
-# Merge GTEx_merged with attributes_ds based on the SampleID and SAMPID columns
-GTEx_final_with_tissue <- merge(GTEx_merged, attributes_selected, by.x = "SampleID", by.y = "SAMPID", all.x = TRUE)
-
-# Reorder columns to place SMTS (tissue type) and SMTSD (tissue detail) as needed
-GTEx_final_with_tissue <- GTEx_final_with_tissue %>%
-  dplyr::select(SUBJID, SEX, SMTS, SMTSD, everything())
-
-# Reset the row names to match SampleID if you want to preserve original row identifiers
-rownames(GTEx_final_with_tissue) <- GTEx_final_with_tissue$SampleID
-
-# Drop SampleID column if it's no longer needed
-GTEx_final_with_tissue <- GTEx_final_with_tissue %>% dplyr::select(-SampleID)
-
-# View the final dataset with tissue type added
-head(GTEx_final_with_tissue)
-
-```
-
-## Transform the data
-
-```{r LogTransformation}
-# Apply the log10(1 + TPM) transformation for each gene column
-GTEx_log <- GTEx_final_with_tissue %>%
-  mutate(across(XIST:RPS4Y2, ~ log10(1 + .), .names = "{col}_log"))
-
-# View the updated dataset with log-transformed columns
-head(GTEx_log)
-
-# Define metadata columns to exclude
-metadata_columns <- c("SUBJID", "SEX", "SMTS", "SMTSD")
-
-# Select only the gene columns, excluding the metadata columns
-gene_columns <- setdiff(colnames(GTEx_log), c(metadata_columns, grep("_log$", colnames(GTEx_log), value = TRUE)))
-
-# Get corresponding log-transformed columns
-log_columns <- paste0(gene_columns, "_log")
-
-# Reorder columns to have genes and their log-transformations next to each other
-new_order <- c(metadata_columns, as.vector(rbind(gene_columns, log_columns)))
+# Define the new column order
+expression_order <- c(
+  colnames(gtex_complete)[1:6], # Keep the annotation columns unchanged
+  as.vector(rbind(tpm_columns, log_columns, expression_columns))
+)
 
 # Reorder the dataframe
-GTEx_log_reordered <- GTEx_log %>% dplyr::select(all_of(new_order))
+gtex_complete <- gtex_complete %>%
+  dplyr::select(all_of(expression_order))
 
-# View the reordered dataframe
-head(GTEx_log_reordered)
+# View the updated dataset
+head(gtex_complete)
 ```
 
-## Assign expression level
+### Save CSV of data used for analysis
 
-```{r ExpressionLevels}
-# Get the list of gene columns by excluding metadata, log columns, and any non-gene columns
-gene_columns <- setdiff(names(GTEx_log_reordered), c("SUBJID", "SEX", "SMTS", "SMTSD", grep("_log", names(GTEx_log_reordered), value = TRUE)))
+```{r Save Data}
+# Define file path for the data
+gtex_complete_file <- file.path(data_directory, "GTEx_data_2017_v8.csv")
 
-# Function to categorize expression level based on TPM values
-categorize_expression <- function(tpm) {
-  if (tpm <= 1) {
-    return("not_expressed")
-  } else if (tpm >= 10) {
-    return("expressed")
-  } else {
-    return("intermediate")
-  }
+# Save the data as a CSV
+write.csv(gtex_complete, file = gtex_complete_file, row.names = FALSE)
+```
+
+## View Expression of the Genes
+
+This section generates violin plots for individual genes, comparing
+expression levels across tissues and sexes. Thresholds for expressed
+and not expressed states are marked for reference.
+
+```{r Thresholds}
+# High threshold: 10 TPM
+high_threshold <- log10(1 + 10)
+
+# Low threshold: 1 TPM
+low_threshold <- log10(1 + 1)
+```
+
+```{r Expression Violins}
+# Function to create individual violin plots for each gene with thresholds (only males and females)
+create_violin_plot_with_thresholds <- function(chosen_gene, 
+                                               data, 
+                                               low_threshold, high_threshold) {
+  
+  # Prepare the data for the chosen gene (log TPM values), filtering for males and females only
+  gene_data <- data.frame(
+    reported_sex = data$SEX,
+    expression = data[[chosen_gene]]
+  ) %>%
+    dplyr::filter(reported_sex %in% c("Male", "Female"))
+  
+  # Clean up the gene name by removing the suffix for y-axis label
+  gene_label <- gsub("_LogTPM", "", chosen_gene)
+  
+  # Calculate sample sizes for each group
+  sample_sizes <- gene_data %>%
+    group_by(reported_sex) %>%
+    summarise(n = n())
+  
+  # Plot the violin plot with thresholds
+  plot <- ggplot(gene_data, aes(x = reported_sex, y = expression, fill = reported_sex)) + 
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +  
+    geom_jitter(size = 0.25, width = 0.2, alpha = 0.5) +  
+    ylab(paste0(gene_label, " Gene Expression (Log10(1 + TPM))")) + 
+    xlab("Reported Sex") +
+    theme_light() +
+    
+    # Capitalize "Female" and "Male" in the legend
+    scale_fill_manual(values = c("#388769ff", "#3887697f"),
+                      labels = c("Female", "Male"),
+                      name = "Reported Sex") +
+    
+    ggtitle(paste("GTEx Gene Expression of", gene_label, "by Reported Sex")) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    
+    # Add thresholds
+    geom_hline(yintercept = high_threshold, linetype = "dashed", color = "red") + 
+    geom_hline(yintercept = low_threshold, linetype = "dashed", color = "blue") +
+    
+    # Annotate with threshold values
+    annotate("text", x = 1.5, y = high_threshold, 
+             label = "Expressed: >= 10 TPM", color = "red", vjust = -0.5) +
+    annotate("text", x = 1.5, y = low_threshold, 
+             label = "Not Expressed: <= 1 TPM", color = "blue", vjust = -0.5) +
+    
+    # Add sample sizes at the top
+    geom_text(data = sample_sizes, aes(x = reported_sex, y = max(gene_data$expression) + 0.5, 
+                                       label = paste0("n = ", n)), vjust = 0)
+  
+  # Save the plot as a PDF
+  ggsave(paste0("GTEx_violin_", gene_label, ".pdf"), plot, 
+         width = 16, height = 10, units = "cm")
+  
+  # Save the plot as a PNG
+  ggsave(paste0("GTEx_violin_", gene_label, ".png"), plot, 
+         width = 16, height = 10, units = "cm")
 }
 
-# Add expression level columns for each gene based on TPM (non-log) values
-for (gene in gene_columns) {
-  gene_expression_column <- paste0(gene, "_Expression_Level")
-  GTEx_log_reordered[[gene_expression_column]] <- sapply(GTEx_log_reordered[[gene]], categorize_expression)
+# Create violin plots for all genes with thresholds (only for males and females)
+for (i in 1:length(log_columns)) {
+  chosen_gene <- log_columns[i]
+  
+  # Create the plot for the current gene, filtering males and females, and adding thresholds
+  create_violin_plot_with_thresholds(chosen_gene, 
+                                     gtex_complete,
+                                     low_threshold, high_threshold)
 }
-
-# View the updated dataset to check the new columns
-head(GTEx_log_reordered)
 ```
 
 ## Filter data
 
-```{r FilterData}
+Filters the dataset further to include only selected genes and their
+transformed data, creating a more manageable dataset for downstream
+analysis.
+
+```{r Filter Data}
 # List of genes of interest
-genes_of_interest <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+expressed_genes <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
 
 # Create a list of interleaved gene and log columns
-genes_with_logs <- c(rbind(genes_of_interest, 
-                           paste0(genes_of_interest, "_log"), 
-                           paste0(genes_of_interest, "_Expression_Level")))
+genes_with_logs <- c(rbind(paste0(expressed_genes, "_TPM"),
+                           paste0(expressed_genes, "_LogTPM"), 
+                           paste0(expressed_genes, "_Expression_Level")))
 
-# Filter the data to keep only the selected genes and their log columns, along with metadata
-GTEx_filtered <- GTEx_log_reordered %>%
-  dplyr::select(SUBJID, SEX, SMTS, SMTSD, all_of(genes_with_logs))
+# Filter the data to keep only the selected genes and their log columns, along with annotations
+gtex_filtered <- gtex_complete %>%
+  dplyr::select(paste0(annotation_columns), all_of(genes_with_logs))
 
 # View the filtered dataset
-head(GTEx_filtered)
+head(gtex_filtered)
 ```
 
 ## Create Expression Plot by Tissue
 
-```{r TissueViolins}
+Visualizes gene expression patterns in specific tissues for male and
+female samples using violin plots, with a focus on genes like *XIST*
+and *DDX3Y*.
+
+```{r Tissue Violins}
 # Filter the dataset for females (for XIST) and males (for DDX3Y)
-female_data <- GTEx_filtered %>% filter(SEX == "Female")
-male_data <- GTEx_filtered %>% filter(SEX == "Male")
+female_data <- gtex_filtered %>% filter(SEX == "Female")
+male_data <- gtex_filtered %>% filter(SEX == "Male")
 
 # Plot for XIST expression in females by tissue type
-xist_plot <- ggplot(female_data, aes(x = SMTSD, y = XIST_log, fill = SEX)) +
+xist_plot <- ggplot(female_data, aes(x = SMTSD, y = XIST_LogTPM, fill = SEX)) +
   geom_violin(trim = FALSE, scale = "width") +
-  geom_jitter(size = 0.25, width = 0.2) +
+  geom_jitter(size = 0.1, width = 0.2) +
   labs(title = "XIST Expression (Log TPM) in Females by Tissue",
        x = "Tissue Type",
        y = "XIST Expression (Log TPM)") +
   theme_light() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
         plot.margin = margin(t = 10, r = 10, b = 20, l = 50)) +
-  scale_fill_manual(name = "Sex", values = c("Female" = "royalblue")) +
+  scale_fill_manual(name = "Sex", values = c("Female" = "#388769ff")) +
   scale_x_discrete(labels = function(x) abbreviate(x, minlength = 15))
 
 # Plot for DDX3Y expression in males by tissue type
-ddx3y_plot <- ggplot(male_data, aes(x = SMTSD, y = DDX3Y_log, fill = SEX)) +
+ddx3y_plot <- ggplot(male_data, aes(x = SMTSD, y = DDX3Y_LogTPM, fill = SEX)) +
   geom_violin(trim = FALSE, scale = "width") +
-  geom_jitter(size = 0.25, width = 0.2) +
+  geom_jitter(size = 0.1, width = 0.2) +
   labs(title = "DDX3Y Expression (Log TPM) in Males by Tissue",
        x = "Tissue Type",
        y = "DDX3Y Expression (Log TPM)") +
   theme_light() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 8),
         plot.margin = margin(t = 10, r = 10, b = 20, l = 50)) +
-  scale_fill_manual(name = "Sex", values = c("Male" = "lightblue")) +
+  scale_fill_manual(name = "Sex", values = c("Male" = "#3887697f")) +
   scale_x_discrete(labels = function(x) abbreviate(x, minlength = 15))
 
 # Save the plots
-ggsave("GTEx_XIST_violin_plot_females_by_tissue.png", plot = xist_plot, width = 14, height = 6)
-ggsave("GTEx_XIST_violin_plot_females_by_tissue.pdf", plot = xist_plot, width = 14, height = 6)
+ggsave("GTEx_female_XIST_tissue_expression_violin.pdf", plot = xist_plot, width = 14, height = 6)
+ggsave("GTEx_female_XIST_tissue_expression_violin.png", plot = xist_plot, width = 14, height = 6)
 
-ggsave("GTEx_DDX3Y_violin_plot_males_by_tissue.png", plot = ddx3y_plot, width = 14, height = 6)
-ggsave("GTEx_DDX3Y_violin_plot_males_by_tissue.pdf", plot = ddx3y_plot, width = 14, height = 6)
+ggsave("GTEx_male_DDX3Y_tissue_expression_violin.png", plot = ddx3y_plot, width = 14, height = 6)
+ggsave("GTEx_male_DDX3Y_tissue_expression_violin.pdf", plot = ddx3y_plot, width = 14, height = 6)
 
 # Print the plots in R Markdown
 xist_plot
 ddx3y_plot
 ```
 
+```{r Filter XISTDDX3Y_Brain}
+# Filter for XIST expression in females (CNS only) with selected annotations
+brain_data <- gtex_filtered %>%
+  filter(SMTS == "Brain") %>%
+  dplyr::select(SAMPLE_ID, SUBJECT_ID, SEX, SMTSD, XIST_LogTPM, DDX3Y_LogTPM)
+```
+
+```{r Brain Expression}
+# Calculate sample sizes for annotation
+sample_sizes <- brain_data %>%
+  group_by(SEX) %>%
+  summarise(n = n())
+
+# Create violin plot for XIST expression in GBM
+brain_xist_violin <- ggplot(brain_data, aes(x = SMTSD, y = XIST_LogTPM, fill = SEX)) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_jitter(width = 0.2) +
+  labs(title = "GTEx XIST Gene Expression by Sex",
+       x = "Sex", 
+       y = "XIST Expression (Log10(1 + TPM))", 
+       fill = "Sex") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Female" = "#388769ff", "Male" = "#3887697f")) +
+  # Add thresholds
+  geom_hline(yintercept = log10(1 + 1), color = "blue", linetype = "dashed") +  # Low threshold at 1 TPM
+  geom_hline(yintercept = log10(1 + 10), color = "red", linetype = "dashed") +  # High threshold at 10 TPM
+  # annotate("text", x = Inf, y = log10(1 + 1), label = "1 TPM (Not expressed)", 
+  #          color = "blue", vjust = 1.8, hjust = 4) + 
+  # annotate("text", x = Inf, y = log10(1 + 10), label = "10 TPM (Expressed)", 
+  #          color = "red", vjust = -0.5, hjust = 4.25) +
+    # Add sample size
+  annotate("text", x = 2, y = 4, 
+           label = paste0("n = ", sample_sizes$n[sample_sizes$SEX == "Female"], " females"), 
+           size = 5) +
+  annotate("text", x = 2, y = 3.5, 
+           label = paste0("n = ", sample_sizes$n[sample_sizes$SEX == "Male"], " males"), 
+           size = 5) +
+  # Rotate x-axis text
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Create a violin for DDX3Y expression in GBM
+brain_ddx3y_violin <- ggplot(brain_data, aes(x = SMTSD, y = DDX3Y_LogTPM, fill = SEX)) +
+  geom_violin(trim = FALSE, scale = "width") +
+  geom_jitter(width = 0.2) +
+  labs(title = "GTEx DDX3Y Gene Expression by Sex", 
+       x = "Sex", 
+       y = "DDX3Y Expression (Log10(1 + TPM))", 
+       fill = "Sex") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Female" = "#388769ff", "Male" = "#3887697f")) +
+  # Add thresholds
+  geom_hline(yintercept = log10(1 + 1), color = "blue", linetype = "dashed") +  # Low threshold at 1 TPM
+  geom_hline(yintercept = log10(1 + 10), color = "red", linetype = "dashed") +  # High threshold at 10 TPM
+  # annotate("text", x = Inf, y = log10(1 + 1), label = "1 TPM (Not expressed)", 
+  #          color = "blue", vjust = 1.2, hjust = 2.3) + 
+  # annotate("text", x = Inf, y = log10(1 + 10), label = "10 TPM (Expressed)", 
+  #          color = "red", vjust = -0.5, hjust = 2.5) +
+  # Add sample size
+  annotate("text", x = 2, y = 4, 
+           label = paste0("n = ", sample_sizes$n[sample_sizes$SEX == "Female"], " females"), 
+           size = 5) +
+  annotate("text", x = 2, y = 3.5, 
+           label = paste0("n = ", sample_sizes$n[sample_sizes$SEX == "Male"], " males"), 
+           size = 5) +
+  # Rotate x-axis text
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Save the plots as PNG and PDF
+ggsave("GTEx_XIST_violin_brain.png", plot = brain_xist_violin, width = 6, height = 4)
+ggsave("GTEx_XIST_violin_brain.pdf", plot = brain_xist_violin, width = 14, height = 6)
+
+ggsave("GTEx_DDX3Y_violin_brain.png", plot = brain_ddx3y_violin, width = 6, height = 4)
+ggsave("GTEx_DDX3Y_violin_brain.pdf", plot = brain_ddx3y_violin, width = 14, height = 6)
+
+# Print both plots
+plot(brain_xist_violin)
+plot(brain_ddx3y_violin)
+```
+
 ## Heat Maps
 
-```{r OrderbyExpression}
+Generates comprehensive and refined heatmaps to visualize scaled gene
+expression levels across tissues. Includes:
+
+-   **Complete Heat Map:** Displays all genes of interest, clustered
+    by sex and gene location.
+
+-   **Refined Heat Map:** Focuses on specific genes and locations for
+    better resolution.
+
+```{r Order by Expression}
 # Create a list of corresponding expression level columns
 expression_columns <- paste0(genes_of_interest, "_Expression_Level")
 
@@ -327,18 +577,18 @@ expression_columns <- paste0(genes_of_interest, "_Expression_Level")
 expression_order <- c("expressed", "intermediate", "not_expressed")
 
 # Sort the dataset by expression levels for the genes of interest in priority order
-GTEx_sorted <- GTEx_log_reordered %>%
+gtex_sorted <- gtex_complete %>%
   arrange(across(all_of(expression_columns), 
                  ~ factor(., levels = expression_order)))
 
 # View the sorted dataset
-head(GTEx_sorted)
+head(gtex_sorted)
 ```
 
-```{r HandlingNAs}
+```{r Handling NAs}
 # Calculate the count of NA or blank values for each original TPM gene column (without "_log")
-na_or_blank_counts_tpm <- colSums(is.na(GTEx_sorted %>% dplyr::select(-contains("_log"))) |
-                                  GTEx_sorted %>% dplyr::select(-contains("_log")) == "")
+na_or_blank_counts_tpm <- colSums(is.na(gtex_sorted %>% dplyr::select(-contains("_log"))) |
+                                  gtex_sorted %>% dplyr::select(-contains("_log")) == "")
 
 # View the counts of NA or blank values in the original TPM columns
 print(na_or_blank_counts_tpm)
@@ -346,20 +596,20 @@ print(na_or_blank_counts_tpm)
 
 ### Complete Heat Map
 
-```{r CompleteHeatMap}
+```{r Complete Heat Map}
 # Filter only log-transformed columns
-heat_matrix_gtex <- as.matrix(GTEx_sorted %>%
-  dplyr::select(contains("_log")))
+heat_matrix_gtex <- as.matrix(gtex_sorted %>%
+  dplyr::select(contains("_LogTPM")))
 
 # Transpose the matrix to have genes as rows and samples as columns
 heat_matrix_gtex <- t(heat_matrix_gtex)
 
 # Remove "_log" suffix from row names for display
-row.names(heat_matrix_gtex) <- gsub("_log", "", row.names(heat_matrix_gtex))
+row.names(heat_matrix_gtex) <- gsub("_LogTPM", "", row.names(heat_matrix_gtex))
 colnames(heat_matrix_gtex) <- NULL
 
 # Extract sex column to split by sex (Male/Female)
-reported_sex_gtex <- GTEx_sorted$SEX
+reported_sex_gtex <- gtex_sorted$SEX
 
 # Scaling by row: Min-Max Scaling
 heat_matrix_scaled_gtex <- t(apply(heat_matrix_gtex, 1, function(x) {
@@ -384,11 +634,11 @@ gene_heatmap_gtex <- suppressMessages(Heatmap(heat_matrix_scaled_gtex,
                          ))
 
 # Save heatmap as PNG and PDF
-pdf("GTEx_complete_heatmap_scaled.pdf", width = 10, height = 10)
+pdf("GTEx_complete_heatmap.pdf", width = 10, height = 10)
 print(gene_heatmap_gtex)
 dev.off()
 
-png("GTEx_complete_heatmap_scaled.png", width = 1000, height = 1000)
+png("GTEx_complete_heatmap.png", width = 1000, height = 1000)
 print(gene_heatmap_gtex)
 dev.off()
 
@@ -398,31 +648,32 @@ gene_heatmap_gtex
 
 ### Refined Heat Map
 
-```{r RefinedGeneLocations}
+```{r Refined Gene Locations}
 # Filter gene_locations for genes of interest
 filtered_gene_locations <- gene_locations %>%
-  filter(gene_name %in% genes_of_interest)
+  filter(gene_name %in% expressed_genes)
 
 # Create a vector for gene locations corresponding to the genes of interest
-gene_location_match_refined <- filtered_gene_locations$location[match(genes_of_interest, filtered_gene_locations$gene_name)]
+gene_location_match_refined <- filtered_gene_locations$location[
+  match(expressed_genes, filtered_gene_locations$gene_name)]
 
 filtered_gene_locations
 ```
 
-```{r ChosenGenesHeatMap}
-# Filter the original GTEx_sorted for genes of interest
-refined_heat_data <- GTEx_sorted %>%
-  dplyr::select(SUBJID, SEX, contains(genes_of_interest))
+```{r Chosen Genes Heat Map}
+# Filter the original gtex_sorted for genes of interest
+refined_heat_data <- gtex_sorted %>%
+  dplyr::select(SUBJECT_ID, SEX, contains(expressed_genes))
 
 # Filter only log-transformed columns
 refined_heat_matrix <- as.matrix(refined_heat_data %>%
-  dplyr::select(contains("_log")))
+  dplyr::select(contains("_LogTPM")))
 
 # Transpose the matrix to have genes as rows and samples as columns
 refined_heat_matrix <- t(refined_heat_matrix)
 
 # Remove "_log" suffix from row names for display
-row.names(refined_heat_matrix) <- gsub("_log", "", row.names(refined_heat_matrix))
+row.names(refined_heat_matrix) <- gsub("_LogTPM", "", row.names(refined_heat_matrix))
 colnames(refined_heat_matrix) <- NULL
 
 # Extract sex column to split by sex (Male/Female)
@@ -448,11 +699,11 @@ gene_heatmap_refined <- suppressMessages(Heatmap(refined_heat_matrix_scaled,
                          ))
 
 # Save refined heatmap as PNG and PDF
-pdf("GTEx_refined_heatmap_scaled.pdf", width = 10, height = 10)
+pdf("GTEx_refined_heatmap.pdf", width = 10, height = 10)
 print(gene_heatmap_refined)
 dev.off()
 
-png("GTEx_refined_heatmap_scaled.png", width = 1000, height = 1000)
+png("GTEx_refined_heatmap.png", width = 1000, height = 1000)
 print(gene_heatmap_refined)
 dev.off()
 
@@ -462,8 +713,13 @@ gene_heatmap_refined
 
 ## Summary Table
 
-```{r TotalY}
-# Define the chrY genes from genes_of_interest, excluding XIST
+Creates summary tables based on sex chromosome complement (SCC) and
+total Y chromosome expression. Includes both inclusive (intermediates
+treated as expressed) and conservative (intermediates treated as not
+expressed) classifications.
+
+```{r Classify chrY}
+# Define chrY gene expression levels
 chrY_gene_Expression <- c("RPS4Y1_Expression_Level", 
                           "ZFY_Expression_Level", 
                           "USP9Y_Expression_Level", 
@@ -472,24 +728,21 @@ chrY_gene_Expression <- c("RPS4Y1_Expression_Level",
                           "KDM5D_Expression_Level", 
                           "EIF1AY_Expression_Level")
 
-# Save sample ids
-GTEx_filtered$SAMPLEID <- rownames(GTEx_filtered)
-
-# Add total_Y_expression column
-GTEx_filtered <- GTEx_filtered %>%
+# Add Total_Y_Expression column
+gtex_with_y <- gtex_filtered %>%
   rowwise() %>%
-  mutate(total_Y_expression = case_when(
-    any(c_across(all_of(chrY_gene_Expression)) == "expressed") ~ "expressed",
+  mutate(Total_Y_Expression = case_when(
+    sum(c_across(all_of(chrY_gene_Expression)) == "expressed") >= 2 ~ "expressed",
     all(c_across(all_of(chrY_gene_Expression)) == "not_expressed") ~ "not_expressed",
-    TRUE ~ "intermediate"  # Cases that are have at least one intermediate, no expressed
+    TRUE ~ "intermediate"  # Cases that have fewer than two expressed or have at least one intermediate
   ))
 
 # View the updated data
-head(GTEx_filtered)
+head(gtex_with_y)
 ```
 
-```{r GenerateTableFx, echo=TRUE}
-# Function to generate the table for a given subset of data using total_Y_expression
+```{r Generate Table Fx}
+# Function to generate the table for a given subset of data using Total_Y_Expression
 generate_table <- function(data, label) {
   total_count <- nrow(data)
   
@@ -497,55 +750,57 @@ generate_table <- function(data, label) {
   inclusive_highXIST_lowY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level %in% c("expressed", "intermediate") &
-           total_Y_expression == "not_expressed") %>%
+           Total_Y_Expression == "not_expressed") %>%
     nrow()
 
   inclusive_lowXIST_lowY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level == "not_expressed" &
-           total_Y_expression == "not_expressed") %>%
+           Total_Y_Expression == "not_expressed") %>%
     nrow()
 
   inclusive_highXIST_highY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level %in% c("expressed", "intermediate") &
-           total_Y_expression %in% c("expressed", "intermediate")) %>%
+           Total_Y_Expression %in% c("expressed", "intermediate")) %>%
     nrow()
 
   inclusive_lowXIST_highY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level == "not_expressed" &
-           total_Y_expression %in% c("expressed", "intermediate")) %>%
+           Total_Y_Expression %in% c("expressed", "intermediate")) %>%
     nrow()
 
   # Conservative counts (treating intermediate as not expressed)
   conservative_highXIST_lowY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level == "expressed" &
-           total_Y_expression %in% c("not_expressed", "intermediate")) %>%
+           Total_Y_Expression %in% c("not_expressed", "intermediate")) %>%
     nrow()
 
   conservative_lowXIST_lowY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level %in% c("not_expressed", "intermediate") &
-           total_Y_expression %in% c("not_expressed", "intermediate")) %>%
+           Total_Y_Expression %in% c("not_expressed", "intermediate")) %>%
     nrow()
 
   conservative_highXIST_highY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level == "expressed" &
-           total_Y_expression == "expressed") %>%
+           Total_Y_Expression == "expressed") %>%
     nrow()
 
   conservative_lowXIST_highY <- data %>%
     rowwise() %>%
     filter(XIST_Expression_Level %in% c("not_expressed", "intermediate") &
-           total_Y_expression == "expressed") %>%
+           Total_Y_Expression == "expressed") %>%
     nrow()
 
   # Calculate inclusive and conservative counts and percentages
-  inclusive_counts <- c(inclusive_highXIST_lowY, inclusive_lowXIST_lowY, inclusive_highXIST_highY, inclusive_lowXIST_highY)
-  conservative_counts <- c(conservative_highXIST_lowY, conservative_lowXIST_lowY, conservative_highXIST_highY, conservative_lowXIST_highY)
+  inclusive_counts <- c(inclusive_highXIST_lowY, inclusive_lowXIST_lowY, 
+                        inclusive_highXIST_highY, inclusive_lowXIST_highY)
+  conservative_counts <- c(conservative_highXIST_lowY, conservative_lowXIST_lowY, 
+                           conservative_highXIST_highY, conservative_lowXIST_highY)
   
   inclusive_percentages <- (inclusive_counts / total_count) * 100
   conservative_percentages <- (conservative_counts / total_count) * 100
@@ -590,107 +845,139 @@ generate_table <- function(data, label) {
 }
 ```
 
-```{r ApplyFx}
-# Filter data to include only female, male, and unknown cell lines
-female_data <- GTEx_filtered %>% filter(SEX == "Female")
-male_data <- GTEx_filtered %>% filter(SEX == "Male")
+```{r Apply Fx}
+# Separate data into female and male data
+female_data <- gtex_with_y %>% filter(SEX == "Female")
+male_data <- gtex_with_y %>% filter(SEX == "Male")
 
 # Generate tables for each subset
 female_result <- generate_table(female_data, "Female") #5798 total
 male_result <- generate_table(male_data, "Male") #11584 total
 ```
 
-## Contingency Table - SCC per Sample
+## Contingency Table - Inferred SCC per Sample
 
-```{r SampleTable}
+```{r Y Expression Status Fx}
 # Function to determine if all chrY genes have the same expression
 determine_chrY_expression_status <- function(...) {
-  expressions <- list(...)
+  # Capture the arguments as a list and unlist them into a vector
+  expressions <- unlist(list(...))
+  
+  # Convert factor levels to characters to ensure proper comparison
+  expressions <- as.character(expressions)
+  
+  # Exclude any NA values
+  expressions <- expressions[!is.na(expressions)]
+  
+  # Check if all the unique non-NA values are the same
   if (length(unique(expressions)) == 1) {
     return("same")
   } else {
     return("mixed")
   }
 }
+```
 
-# Function to determine the sex chromosome complement with intermediates treated as expressed (scc_inter_expr)
+```{r Inferred SCC Fx}
+# Functions to determine the sex chromosome complement
 determine_scc_inter_expr <- function(xist_expression, y_expression) {
-  if (xist_expression == "expressed") {
-    if (y_expression %in% c("expressed", "intermediate")) {
-      return("XXY")
-    } else if (y_expression == "not_expressed") {
-      return("XX")
-    }
-  } else if (xist_expression == "intermediate") {
-    if (y_expression %in% c("expressed", "intermediate")) {
-      return("XXY")
-    } else if (y_expression == "not_expressed") {
-      return("XX")
-    }
-  } else if (xist_expression == "not_expressed") {
-    if (y_expression %in% c("expressed", "intermediate")) {
-      return("XY")
-    } else if (y_expression == "not_expressed") {
-      return("X0")
-    }
-  }
-  
-  # If none of the above conditions are met, return NA
-  return(NA)
+  case_when(
+    xist_expression %in% c("expressed", "intermediate") & y_expression %in% 
+      c("expressed", "intermediate") ~ "XXY",
+    xist_expression %in% c("expressed", "intermediate") & y_expression == "not_expressed" ~ "XX",
+    xist_expression == "not_expressed" & y_expression %in% 
+      c("expressed", "intermediate") ~ "XY",
+    xist_expression == "not_expressed" & y_expression == "not_expressed" ~ "X0",
+    TRUE ~ NA_character_
+  )
 }
 
-# Function to determine the sex chromosome complement with intermediates treated as not expressed (scc_inter_not_expr)
 determine_scc_inter_not_expr <- function(xist_expression, y_expression) {
-  if (xist_expression == "expressed" && y_expression == "expressed") {
-    return("XXY")
-  } else if (xist_expression %in% c("intermediate", "not_expressed") && 
-             y_expression == "expressed") {
-    return("XY")
-  } else if (xist_expression == "expressed" && y_expression %in% c("intermediate", 
-                                                                   "not_expressed")) {
-    return("XX")
-  } else if (xist_expression %in% c("intermediate", "not_expressed") && 
-             y_expression %in% c("intermediate", "not_expressed")) {
-    return("XO")
-  }
-  
-  # If none of the above conditions are met, return NA
-  return(NA)
+  case_when(
+    xist_expression == "expressed" & y_expression == "expressed" ~ "XXY",
+    xist_expression %in% c("intermediate", "not_expressed") & 
+      y_expression == "expressed" ~ "XY",
+    xist_expression == "expressed" & y_expression %in% c("intermediate", "not_expressed") ~ "XX",
+    xist_expression %in% c("intermediate", "not_expressed") & 
+      y_expression %in% c("intermediate", "not_expressed") ~ "X0",
+    TRUE ~ NA_character_
+  )
 }
 
+```
 
+```{r Complements}
+# Apply the functions to determine sex chromosome complements
+complement_data <- gtex_with_y %>%
+  
+  mutate(
+    # Determine the SCC
+    SCC_inclusive = determine_scc_inter_expr(XIST_Expression_Level, Total_Y_Expression),
+    SCC_conservative = determine_scc_inter_not_expr(XIST_Expression_Level, Total_Y_Expression),
+    
+    # Determine if all chrY genes have the same expression status
+    Y_Expression_Status = determine_chrY_expression_status(!!!syms(chrY_gene_Expression))
+  ) %>%
+  
+  # Select the relevant columns for output in the desired order
+  dplyr::select(SAMPLE_ID, SUBJECT_ID, AGE, SEX, SCC_inclusive, SCC_conservative,
+                
+                # Expression levels first
+                XIST_Expression_Level, 
+                Y_Expression_Level = Total_Y_Expression,
+                Y_Expression_Status,
+                
+                # TPM values with corresponding expression levels
+                XIST_TPM, 
+                RPS4Y1_TPM, RPS4Y1_Expression_Level,
+                ZFY_TPM, ZFY_Expression_Level,
+                USP9Y_TPM, USP9Y_Expression_Level,
+                DDX3Y_TPM, DDX3Y_Expression_Level,
+                UTY_TPM, UTY_Expression_Level,
+                KDM5D_TPM, KDM5D_Expression_Level,
+                EIF1AY_TPM, EIF1AY_Expression_Level)
 
-# Apply the functions to determine sex chromosome complements and predicted sex
-complement_data <- GTEx_filtered %>%
-  mutate(Y_expression_status = determine_chrY_expression_status(!!!syms(chrY_gene_Expression)),
-         scc_inclusive = determine_scc_inter_expr(XIST_Expression_Level, total_Y_expression),
-         scc_conservative  = determine_scc_inter_not_expr(XIST_Expression_Level, total_Y_expression),
-         Y_Expression_Level = total_Y_expression) %>%
-  dplyr::select(SAMPLEID, SUBJID, SEX, scc_inclusive, scc_conservative,
-                XIST_Expression_Level, Y_Expression_Level, 
-                Y_expression_status, all_of(chrY_gene_Expression))
+# Check for unassigned complements
+unassigned_complements <- complement_data %>%
+  filter(is.na(SCC_inclusive) | is.na(SCC_conservative))
+
+# Print the unassigned complements to flag them for review
+if (nrow(unassigned_complements) > 0) {
+  print("There are samples with unassigned complements:")
+  print(unassigned_complements)
+} else {
+  print("All samples have assigned complements.")
+}
 
 # Save the complement_data to a CSV file
-write.csv(complement_data, file = "GTEx_individual_scc.csv", row.names = FALSE)
+write.csv(complement_data, file = "GTEx_scc_2_expressed.csv", row.names = FALSE)
 
+# View the updated data
 head(complement_data)
 ```
 
 ## Pie Charts
 
+Visualizes the proportion of different SCC categories across male and
+female samples using inclusive and conservative thresholds.
+
 ### Female Pie Charts
 
-```{r Female Preprocessing}
+```{r Female Processing}
 # Split into inclusive and conservative data frames, excluding the "Total" row
 female_inclusive <- female_result %>%
   filter(Expression != "Total") %>%
   dplyr::select(Sex, Expression, Inclusive_Count, Inclusive_Percent, Inclusive_Complement) %>%
-  rename(Count = Inclusive_Count, Percent = Inclusive_Percent, Complement = Inclusive_Complement)
+  rename(Count = Inclusive_Count, 
+         Percent = Inclusive_Percent, 
+         Complement = Inclusive_Complement)
 
 female_conservative <- female_result %>%
   filter(Expression != "Total") %>%
   dplyr::select(Sex, Expression, Conservative_Count, Conservative_Percent, Conservative_Complement) %>%
-  rename(Count = Conservative_Count, Percent = Conservative_Percent, Complement = Conservative_Complement)
+  rename(Count = Conservative_Count, 
+         Percent = Conservative_Percent, 
+         Complement = Conservative_Complement)
 
 # Reorder the Expression factor in female_inclusive_data and female_conservative_data
 female_inclusive$Expression <- factor(female_inclusive$Expression, 
@@ -710,9 +997,9 @@ head(female_inclusive)
 head(female_conservative)
 ```
 
-```{r FemalePieChart}
+```{r Female Pie Chart}
 # Define colors for the pie charts
-pie_colors_female <- c("palegreen3", "mediumpurple", "gray", "gray")
+pie_colors_female <- c("palegreen4", "mediumpurple4", "gray", "gray")
 
 # Inclusive pie chart for females with labels inside the pie slices
 female_inclusive_chart <- ggplot(female_inclusive, 
@@ -725,14 +1012,16 @@ female_inclusive_chart <- ggplot(female_inclusive,
   
   # Repel the gray labels to avoid overlap
   geom_label_repel(data = subset(female_inclusive, Expression %in% 
-                                   c("XIST expressed and chrY expressed", "XIST not expressed and chrY expressed")),
+                                   c("XIST expressed and chrY expressed", 
+                                     "XIST not expressed and chrY expressed")),
                    aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression),
                    size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
                    segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
   
   # Add centered labels for non-gray sections
   geom_label(data = subset(female_inclusive, !Expression %in% 
-                             c("XIST expressed and chrY expressed", "XIST not expressed and chrY expressed")),
+                             c("XIST expressed and chrY expressed", 
+                               "XIST not expressed and chrY expressed")),
              aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), fill = Expression), 
              position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
              label.size = 0.35, label.padding = unit(0.2, "lines"), 
@@ -788,7 +1077,7 @@ ggsave(filename = file.path("GTEx_female_conservative_pie_chart.pdf"),
 
 ### Male Pie Charts
 
-```{r Male Preprocessing}
+```{r Male Processing}
 # Split into inclusive and conservative data frames, excluding the "Total" row
 male_inclusive <- male_result %>%
   filter(Expression != "Total") %>%
@@ -818,7 +1107,7 @@ head(male_inclusive)
 head(male_conservative)
 ```
 
-```{r MalePieChart}
+```{r Male Pie Chart}
 # Define colors for the pie charts (keeping gray for the chrY expressed cases)
 pie_colors_male <- c("palegreen2", "mediumpurple1", "gray", "gray")
 
@@ -893,10 +1182,324 @@ ggsave(filename = file.path("GTEx_male_conservative_pie_chart.pdf"),
        plot = male_conservative_chart, width = 7, height = 5, dpi = 300)
 ```
 
+## Age Analysis
+
+Explores the relationship between age and gene expression levels for
+key genes:
+
+-   **Female Violin Plot:** Displays age distributions by *XIST*
+    expression levels.
+
+-   **Male Violin Plot:** Shows age distributions by total Y
+    expression levels.
+
+-   **Scatter Plots:** Investigates correlations between age and
+    log-transformed gene expression levels.
+
+```{r Female Violin}
+# Order the levels of XIST_Expression_Level
+female_data <- female_data %>%
+  mutate(XIST_Expression_Level = factor(XIST_Expression_Level, 
+                                        levels = c("not_expressed", "intermediate", "expressed")))
+
+# Calculate p-values using wilcox.test
+pvalue_1 <- wilcox.test(AGE ~ XIST_Expression_Level, 
+                        data = female_data %>% filter(XIST_Expression_Level %in% 
+                                                        c("not_expressed", "intermediate")))$p.value
+pvalue_2 <- wilcox.test(AGE ~ XIST_Expression_Level, 
+                        data = female_data %>% filter(XIST_Expression_Level %in% 
+                                                        c("intermediate", "expressed")))$p.value
+pvalue_3 <- wilcox.test(AGE ~ XIST_Expression_Level, 
+                        data = female_data %>% filter(XIST_Expression_Level %in% 
+                                                        c("not_expressed", "expressed")))$p.value
+
+# Apply Bonferroni correction
+p_values <- c(pvalue_1, pvalue_2, pvalue_3)
+p_values_bonferroni <- p.adjust(p_values, method = "bonferroni")
+
+# Format p-values: scientific notation for < 0.001, regular format otherwise
+formatted_pvalues <- ifelse(p_values_bonferroni < 0.001, 
+                            sprintf("%.3e", p_values_bonferroni),  # Scientific notation for small p-values
+                            sprintf("%.3f", p_values_bonferroni))  # Regular format for others
+
+# Boxplot for XIST expression level vs age for females
+female_age_violin <- ggplot(female_data, aes(x = XIST_Expression_Level, y = AGE, 
+                                           fill = XIST_Expression_Level)) +
+  geom_violin(trim = FALSE, alpha = 0.6, width = 0.9, color = "black") +
+  geom_jitter(width = 0.10, size = 0.5, color = "grey47", alpha = 0.3) +
+  stat_summary(fun = mean, geom = "point", shape = 21, size = 1, fill = "black") +
+  stat_summary(fun = mean, geom = "text", aes(label = round(..y.., 1)), vjust = 1, 
+               hjust = 0.65, color = "black") + 
+  geom_signif(comparisons = list(c("not_expressed", "intermediate"), 
+                                 c("intermediate", "expressed"), 
+                                 c("not_expressed", "expressed")),
+              map_signif_level = FALSE, step_increase = 0.1, 
+              annotations = formatted_pvalues,
+              y_position = c(90, 75, 90)) + # Adjusted the y positions of the lines
+  labs(title = "GTEx Age Distribution by XIST Expression Level in Female Cell Lines",
+       x = "XIST Expression Level",
+       y = "Age") +
+  scale_x_discrete(labels = c("expressed" = "Expressed", 
+                              "not_expressed" = "Not Expressed", 
+                              "intermediate" = "Intermediate")) +
+  scale_fill_manual(values = c("expressed" = "#F0B7B0", 
+                               "not_expressed" = "#B8CCE1", 
+                               "intermediate" = "#D2EAC8"),
+                    labels = c("Not Expressed", "Intermediate", "Expressed")) +
+  theme_minimal() +
+  theme(legend.position = "top", 
+        legend.title = element_blank())
+
+# Print the plot
+print(female_age_violin)
+
+# Save as PNG and PDF
+ggsave("GTEx_XISTExpressionvAge_Females.png", plot = female_age_violin, width = 7, height = 5)
+ggsave("GTEx_XISTExpressionvAge_Females.pdf", plot = female_age_violin, width = 7, height = 5)
+```
+
+```{r Female Scatter}
+# Scatter plot for GTEx females: Age vs. XIST Expression
+female_age_scatter <- ggplot(female_data, aes(x = AGE, y = XIST_LogTPM)) +
+  geom_point(alpha = 0.5) + 
+  # geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  # stat_poly_eq(aes(label = paste(..rr.label.., sep = "")),
+  #              formula = y ~ x, parse = TRUE, label.y.npc = "top", label.x.npc = "right") +
+  labs(title = "Age vs. XIST Expression in Female Subjects",
+       x = "Age",
+       y = "XIST Expression (Log (1 + TPM))") +
+  theme_minimal()
+
+print(female_age_scatter)
+
+# Perform correlation test
+fem_cor_test <- cor.test(female_data$AGE, female_data$XIST_LogTPM, method = "spearman")
+
+# Print the results
+print(fem_cor_test)
+
+# Save Female plot
+ggsave("GTEx_Age_vs_XIST_Females.png", plot = female_age_scatter, width = 7, height = 5)
+ggsave("GTEx_Age_vs_XIST_Females.pdf", plot = female_age_scatter, width = 7, height = 5)
+```
+
+```{r Male Violin}
+# Order the levels of Total_Y_Expression
+male_data <- male_data %>%
+  mutate(Total_Y_Expression = factor(Total_Y_Expression, 
+                                     levels = c("intermediate", "expressed")))
+
+# Calculate p-value using wilcox.test for Total_Y_Expression
+pvalue_male <- wilcox.test(AGE ~ Total_Y_Expression, 
+                           data = male_data %>% filter(Total_Y_Expression %in% 
+                                                       c("intermediate", "expressed")))$p.value
+
+# Apply Bonferroni correction
+p_values_bonferroni_male <- p.adjust(pvalue_male, method = "bonferroni")
+
+# Format p-values: scientific notation for < 0.001, regular format otherwise
+formatted_pvalues_male <- ifelse(p_values_bonferroni_male < 0.001, 
+                                 sprintf("%.3e", p_values_bonferroni_male), 
+                                 sprintf("%.3f", p_values_bonferroni_male))
+
+# Violin plot for Total_Y_Expression level vs AGE in males
+male_age_plot <- ggplot(male_data, aes(x = Total_Y_Expression, y = AGE, fill = Total_Y_Expression)) +
+  geom_violin(trim = FALSE, alpha = 0.6, width = 0.9, color = "black") +
+  geom_jitter(width = 0.10, size = 0.5, color = "grey47", alpha = 0.3) +
+  stat_summary(fun = mean, geom = "point", shape = 21, size = 1, fill = "black") +
+  stat_summary(fun = mean, geom = "text", aes(label = round(..y.., 1)), vjust = 1, 
+               hjust = 0.65, color = "black") +
+  geom_signif(comparisons = list(c("intermediate", "expressed")),
+              map_signif_level = FALSE, step_increase = 0.1, 
+              annotations = formatted_pvalues_male, 
+              y_position = max(male_data$AGE, na.rm = TRUE) + 10) +
+  labs(title = "GTEx Age Distribution by chrY Expression Level in Male Cell Lines",
+       x = "Total Y Expression Level",
+       y = "Age") +
+  scale_x_discrete(labels = c("expressed" = "Expressed", 
+                              "intermediate" = "Intermediate")) +
+  scale_fill_manual(values = c("expressed" = "#F0B7B0", 
+                               "intermediate" = "#D2EAC8")) +
+  theme_minimal() +
+  theme(legend.position = "top", 
+        legend.title = element_blank())
+
+# Print the plot
+print(male_age_plot)
+
+# Save the plot as PNG and PDF
+ggsave("GTEx_TotalYExpressionvAge_Males.png", plot = male_age_plot, width = 7, height = 5)
+ggsave("GTEx_TotalYExpressionvAge_Males.pdf", plot = male_age_plot, width = 7, height = 5)
+```
+
+```{r Male Scatter}
+# GTEx Male Samples: Age vs. DDX3Y
+male_age_scatter <- ggplot(male_data, aes(x = AGE, y = DDX3Y_LogTPM)) +
+  geom_point(alpha = 0.5) + 
+  # geom_smooth(method = "lm", color = "blue", se = FALSE) +
+  # stat_poly_eq(aes(label = paste(..rr.label.., sep = "~~~")),
+  #              formula = y ~ x, parse = TRUE, label.x.npc = "right") +
+  labs(title = "Age vs. DDX3Y Expression in Male Subjects",
+       x = "Age",
+       y = "DDX3Y Expression (Log10 (1 + TPM))") +
+  theme_minimal()
+
+print(male_age_scatter)
+
+# Perform correlation test
+male_cor_test <- cor.test(male_data$AGE, male_data$DDX3Y_LogTPM, method = "spearman")
+
+# Print the results
+print(male_cor_test)
+
+# Save Male plot
+ggsave("GTEx_Age_vs_DDX3Y_Males.png", plot = male_age_scatter, width = 7, height = 5)
+ggsave("GTEx_Age_vs_DDX3Y_Males.pdf", plot = male_age_scatter, width = 7, height = 5)
+```
+
+## Brain Only - Pie Charts
+
+Focuses on brain-specific data, presenting pie charts for male and female samples to highlight SCC distributions in this tissue type.
+
+```{r BrainPieData}
+# Filter data and generate tables
+brain_female_data <- gtex_with_y %>% filter(SEX == "Female" & SMTS == "Brain")
+brain_female_result <- generate_table(brain_female_data, "Female")
+
+# Filter data and generate tables
+brain_male_data <- gtex_with_y %>% filter(SEX == "Male" & SMTS == "Brain")
+brain_male_result <- generate_table(brain_male_data, "Male")
+
+# Create conservative call data frames
+brain_conservative_female_result <- brain_female_result %>%
+  filter(Expression != "Total") %>%
+  dplyr::select(Sex, Expression, Conservative_Count, Conservative_Percent, Conservative_Complement) %>%
+  rename(Count = Conservative_Count, 
+         Percent = Conservative_Percent, 
+         Complement = Conservative_Complement)
+
+brain_conservative_male_result <- brain_male_result %>%
+  filter(Expression != "Total") %>%
+  dplyr::select(Sex, Expression, Conservative_Count, Conservative_Percent, Conservative_Complement) %>%
+  rename(Count = Conservative_Count, 
+         Percent = Conservative_Percent, 
+         Complement = Conservative_Complement)
+
+# Reorder the Expression factor in female_gbm_conservative_data
+brain_conservative_female_result$Expression <- factor(brain_conservative_female_result$Expression,
+                                                levels = c("XIST expressed and chrY not expressed", 
+                                                           "XIST not expressed and chrY not expressed", 
+                                                           "XIST expressed and chrY expressed", 
+                                                           "XIST not expressed and chrY expressed"))
+
+brain_conservative_male_result$Expression <- factor(brain_conservative_male_result$Expression, 
+                                              levels = c("XIST expressed and chrY not expressed", 
+                                                         "XIST not expressed and chrY not expressed", 
+                                                         "XIST expressed and chrY expressed", 
+                                                         "XIST not expressed and chrY expressed"))
+# View resulting tables
+head(brain_conservative_female_result)
+head(brain_conservative_male_result)
+```
+
+```{r BrainPieChart-Female}
+# Define colors for the pie charts
+pie_colors_female <- c("palegreen4", "mediumpurple4", "gray", "gray")
+
+# Conservative pie chart for females with repelled gray labels and centered others
+brain_female_chart <- ggplot(brain_conservative_female_result, 
+                                    aes(x = "", y = Percent, fill = Expression)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Gene Expression in the Brain - Females") +
+  scale_fill_manual(values = pie_colors_female) +
+  
+  # Repel the gray labels to avoid overlap
+  geom_label_repel(data = subset(brain_conservative_female_result, 
+                                 Expression %in% c("XIST expressed and chrY expressed", 
+                                                   "XIST not expressed and chrY expressed")),
+                   aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), 
+                       fill = Expression),
+                   size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
+                   segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
+  
+  # Add centered labels for non-gray sections
+  geom_label(data = subset(brain_conservative_female_result, 
+                           !Expression %in% c("XIST expressed and chrY expressed", 
+                                              "XIST not expressed and chrY expressed")),
+             aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), 
+                 fill = Expression), 
+             position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
+             label.size = 0.35, label.padding = unit(0.2, "lines"), 
+             fontface = "bold", color = "black") +  # Black text with label background matching the pie slice
+  
+  theme(plot.title = element_text(hjust = 0.8, size = 12),  # Adjust title alignment and size
+        plot.title.position = "plot",  # Ensure the title is positioned correctly
+        plot.margin = margin(10, 10, 10, 40))  # Adjust margins to prevent the title from being cut off
+
+print(brain_female_chart)
+
+# Save the charts
+ggsave(filename = file.path("GTEx_female_conservative_pie_brain.png"), 
+       plot = brain_female_chart, width = 7, height = 5, dpi = 300)
+ggsave(filename = file.path("GTEx_female_conservative_pie_brain.pdf"), 
+       plot = brain_female_chart, width = 7, height = 5, dpi = 300)
+```
+
+```{r BrainPieChart-Male}
+# Define colors for the pie charts (keeping gray for the chrY expressed cases)
+pie_colors_male <- c("gray", "mediumpurple1", "gray", "palegreen2")
+
+# Conservative pie chart for males with repelled gray labels and centered others
+brain_conservative_pie <- ggplot(brain_conservative_male_result, 
+                                  aes(x = "", y = Percent, fill = Expression)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar(theta = "y") +
+  theme_void() +  # Remove background, gridlines, and axis
+  labs(title = "Gene Expression in the Brain - Males") +
+  scale_fill_manual(values = pie_colors_male) +
+  
+  # Repel the gray labels to avoid overlap, but do not repel green (XaY)
+  geom_label_repel(data = subset(brain_conservative_male_result, 
+                                 Expression %in% c("XIST expressed and chrY expressed", 
+                                                   "XIST expressed and chrY not expressed")),
+                   aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), 
+                       fill = Expression),
+                   size = 3, nudge_x = 0.5, force = 1, segment.size = 0.2, show.legend = FALSE,
+                   segment.color = "black", label.size = 0.35, fontface = "bold", color = "black") +
+  
+  # Add centered labels for non-gray sections
+  geom_label(data = subset(brain_conservative_male_result, 
+                           !Expression %in% c("XIST expressed and chrY expressed", 
+                                              "XIST expressed and chrY not expressed")),
+             aes(label = paste0(Complement, ": ", round(Percent, 1), "%"), 
+                 fill = Expression), 
+             position = position_stack(vjust = 0.5), size = 3, show.legend = FALSE,
+             label.size = 0.35, label.padding = unit(0.2, "lines"), 
+             fontface = "bold", color = "black") +  # Black text with label background matching the pie slice
+  
+  theme(plot.title = element_text(hjust = 0.8, size = 12),  # Adjust title alignment and size
+        plot.title.position = "plot",  # Ensure the title is positioned correctly
+        plot.margin = margin(10, 10, 10, 40))  # Adjust margins to prevent the title from being cut off
+
+print(brain_conservative_pie)
+
+# Save the charts
+ggsave(filename = file.path("GTEx_male_conservative_pie_brain.png"), 
+       plot = brain_conservative_pie, width = 7, height = 5, dpi = 300)
+
+# Save the charts as PDFs
+ggsave(filename = file.path("GTEx_male_conservative_pie_brain.pdf"), 
+       plot = brain_conservative_pie, width = 7, height = 5, dpi = 300)
+```
+
 ## Session Information
 
-The following R version and packages were used to generate these tables and figures.
+The following R version and packages were used to generate these
+tables and figures.
 
-```{r SessionInfo}
-sessionInfo()
+```{r Session Info}
+# Capture the output of sessionInfo and write it to the file
+capture.output(sessionInfo(), file = "GTEx_Figures_session_info.txt")
 ```
