@@ -1,0 +1,434 @@
+---
+title: "Sex Chromosome Gene Expression"
+author: "Mariah Lee"
+date: " Last Updated 12.13.2024"
+output: 
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 60
+---
+
+```{r setup, include=FALSE}
+# Set the root directory for knitting the document
+knitr::opts_knit$set(root.dir = "D:/CCLE_Project/Infer_Y_output/")
+# Set chunk options to improve readability of code output
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+
+## Overview
+
+This analysis aims to infer the presence of X and Y chromosomes in CCLE cell lines. The analysis uses XIST to determine the presence of one or two X chromosomes (indicating active and inactive states) and multiple Y chromosome genes to identify the presence, deletions, or downregulation of the Y chromosome.
+
+## Install and Load Needed Packages
+
+This section ensures all necessary packages are installed and loaded. CRAN and Bioconductor packages are used for data manipulation, visualization, and accessing gene information.
+
+```{r LoadPackages, message=FALSE, warning=FALSE}
+# Function to install and load CRAN packages
+load_or_install <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+
+# Function to install and load Bioconductor packages
+load_or_install_bioconductor <- function(pkg) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+  }
+  BiocManager::install(pkg, update = FALSE)
+  library(pkg, character.only = TRUE)
+}
+
+# List of required CRAN packages
+cran_packages <- c("dplyr", "tidyr", "ggplot2", "tibble")
+
+# List of required Bioconductor packages
+bioc_packages <- c("biomaRt")
+
+# Install and load CRAN packages
+sapply(cran_packages, load_or_install)
+
+# Install and load Bioconductor packages
+sapply(bioc_packages, load_or_install_bioconductor)
+```
+
+## Read Data
+
+Gene expression data and cell line annotations are loaded. The gene expression matrix includes rows for genes and columns for cell lines, along with metadata about each gene. Annotation data provides information about cell line origin, reported sex, and tumor characteristics.
+
+```{r ReadData, message=FALSE}
+# Directory where the data is stored; include / at the end
+data_directory <- "D:/CCLE_Project/data/"
+
+# Check if data files exist before loading
+if (file.exists(paste0(data_directory,"CCLE_RNAseq_rsem_genes_tpm_20180929.txt"))) {
+  CCLE_data <- read.delim(paste0(data_directory, "CCLE_RNAseq_rsem_genes_tpm_20180929.txt"), 
+                          header = TRUE, sep = "\t")
+
+} else {
+  stop("CCLE RNAseq gene expression file not found.")
+}
+
+if (file.exists(paste0(data_directory,"Cell_lines_annotations_20181226.txt"))) {
+  annotation_data <- read.csv(paste0(data_directory,"Cell_lines_annotations_20181226.txt"), 
+                              header = TRUE, sep = "\t")
+} else {
+  stop("Cell line annotation file not found.")
+}
+```
+
+## Convert Gene IDs to Gene Symbols
+
+Gene IDs from the Ensembl database are converted to gene symbols for easier interpretation. The process includes handling versioned IDs, querying in batches, and merging the converted symbols back into the data.
+
+```{r EnsemblConversion}
+# Connect to the Ensembl BioMart database
+ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl", 
+                   #host = "https://ensembl.org"
+                   )
+
+# Keep the original gene IDs with version numbers
+original_gene_ids <- CCLE_data$gene_id
+
+# Extract gene IDs without version numbers for the query
+gene_ids_no_version <- sub("\\..*", "", original_gene_ids)
+
+# Function to process Ensembl IDs in batches
+process_in_batches <- function(gene_ids, batch_size = 500, ensembl) {
+  results <- list()
+  
+  for (i in seq(1, length(gene_ids), by = batch_size)) {
+    batch <- gene_ids[i:min(i + batch_size - 1, length(gene_ids))]
+    
+    # Convert gene_ids to gene names using biomaRt
+    gene_conversion <- biomaRt::getBM(filters = "ensembl_gene_id", 
+                                      attributes = c("ensembl_gene_id", "hgnc_symbol"), 
+                                      values = batch, 
+                                      mart = ensembl)
+    
+    results[[length(results) + 1]] <- gene_conversion
+  }
+  
+  do.call(rbind, results)
+}
+
+# Apply the batch processing function
+all_gene_conversions <- process_in_batches(gene_ids_no_version, batch_size = 500, ensembl)
+
+# Merge gene conversion results back to the original data
+gene_conversion_df <- data.frame(gene_id = original_gene_ids, stripped_id = gene_ids_no_version)
+
+# Combine with converted gene names
+CCLE_with_symbols <- merge(gene_conversion_df, all_gene_conversions, by.x = "stripped_id", by.y = "ensembl_gene_id", all.x = TRUE)
+
+# Merge the gene symbols back into the CCLE_data
+CCLE_with_symbols <- merge(CCLE_data, CCLE_with_symbols[, c("gene_id", "hgnc_symbol")], by = "gene_id", all.x = TRUE)
+
+# View the updated CCLE_with_symbols data
+head(CCLE_with_symbols)
+```
+
+## Filter, Transpose, Clean, and Create `ccle_tpm` Data Frame
+
+This section filters the dataset for genes of interest, removes unnecessary columns, ensures no duplicates or missing rows, and transposes the data for further analysis. Annotations are added to provide context about cell lines.
+
+```{r FilterData}
+# Filter for genes of interest
+genes_of_interest <- c("XIST", "SRY", "RPS4Y1", "ZFY", "TGIF2LY", "PCDH11Y", 
+                       "TBL1Y", "AMELY", "USP9Y", "DDX3Y", "UTY", "TMSB4Y", 
+                       "NLGN4Y", "KDM5D", "EIF1AY", "RPS4Y2")
+
+filtered_data <- CCLE_with_symbols %>%
+  dplyr::filter(hgnc_symbol %in% genes_of_interest)
+
+# Remove any unnecessary columns like transcript_ids
+filtered_data <- filtered_data %>%
+  dplyr::select(-transcript_ids)
+
+# Ensure there are no duplicate gene symbols
+filtered_data <- filtered_data %>%
+  dplyr::distinct(hgnc_symbol, .keep_all = TRUE)
+
+# Remove rows where all values are NA
+filtered_data <- filtered_data %>%
+  dplyr::filter(rowSums(is.na(.)) != ncol(.))
+
+# Check to make sure the data frame is properly filtered
+filtered_data$hgnc_symbol
+length(colnames(filtered_data)) - 2 # do not count gene_id or symbol column
+head(filtered_data)
+```
+
+```{r CleanData}
+# Set gene symbols as row names and transpose the data
+transposed_data <- filtered_data %>%
+  tibble::column_to_rownames("hgnc_symbol") %>%
+  t() %>%
+  as.data.frame()
+
+# Remove the 'X' prefix from the rownames
+rownames(transposed_data) <- gsub("^X", "", rownames(transposed_data))
+
+# Remove the 'gene_id' row
+transposed_data <- transposed_data[-which(rownames(transposed_data) == "gene_id"), ]
+
+# View the Data
+head(transposed_data)
+```
+
+### Adding Annotations
+
+Annotations such as reported sex, pathology, and primary tumor site are added to the transposed data. Missing values are handled, and categorical variables are converted into factors for better downstream analysis.
+
+```{r AddAnnotations}
+# Match and add annotations from `annotation_data` to the cell lines
+cell_line_ids <- rownames(transposed_data)
+transposed_data$reported_sex <- annotation_data$Gender[match(cell_line_ids, annotation_data$CCLE_ID)]
+transposed_data$pathology <- annotation_data$Pathology[match(cell_line_ids, annotation_data$CCLE_ID)]
+transposed_data$site_primary <- annotation_data$Site_Primary[match(cell_line_ids, annotation_data$CCLE_ID)]
+transposed_data$site_subtype1 <- annotation_data$Site_Subtype1[match(cell_line_ids, annotation_data$CCLE_ID)]
+transposed_data$site_subtype2 <- annotation_data$Site_Subtype2[match(cell_line_ids, annotation_data$CCLE_ID)]
+transposed_data$age <- annotation_data$Age[match(cell_line_ids, annotation_data$CCLE_ID)]
+
+# Replace "NS" values with NA in site columns
+transposed_data$site_primary[transposed_data$site_primary == "NS"] <- NA
+transposed_data$site_subtype1[transposed_data$site_subtype1 == "NS"] <- NA
+transposed_data$site_subtype2[transposed_data$site_subtype2 == "NS"] <- NA
+
+# Convert `reported_sex` and `pathology` to factors
+transposed_data$reported_sex <- as.factor(transposed_data$reported_sex)
+transposed_data$pathology <- as.factor(transposed_data$pathology)
+
+# Review available columns
+colnames(transposed_data)
+```
+
+### Order the Data
+
+The dataset is reorganized for clarity, ensuring gene expression columns are numerically processed, and non-expression columns (e.g., annotations) are appropriately ordered.
+
+```{r OrderData}
+# Define the available genes (genes of interest that are present in the dataset)
+available_genes <- intersect(genes_of_interest, colnames(transposed_data))
+
+# Order the columns to include reported_sex, pathology, etc, and genes of interest
+ordered_transposed_data <- transposed_data[, c("reported_sex", "pathology", "age", 
+                                               "site_primary", "site_subtype1",
+                                               "site_subtype2", available_genes)]
+
+# Append "_tpm" to the gene column names
+colnames(ordered_transposed_data)[colnames(ordered_transposed_data) %in% available_genes] <- paste0(available_genes, "_TPM")
+
+# Assign NA values to missing data
+ordered_transposed_data[ordered_transposed_data == ""] <- NA
+
+# Ensure only the gene expression columns (TPM columns) are numeric
+expression_cols <- which(colnames(ordered_transposed_data) %in% paste0(available_genes, "_TPM"))
+ordered_transposed_data[, expression_cols] <- sapply(ordered_transposed_data[, expression_cols], as.numeric)
+
+head(ordered_transposed_data)
+```
+
+### Log Transformation
+
+Expression values (TPM) are log-transformed using a base-10 log(1 + x) transformation to normalize the data and reduce skewness. Transformed values are added to the dataset.
+
+```{r LogTransform}
+# Define a custom log1p transformation function with base 10
+log1p_base10 <- function(x) log10(1 + x)
+
+# Apply log1p transformation with base 10 to all TPM values
+log_tpm <- ordered_transposed_data[, 7:ncol(ordered_transposed_data)] %>% sapply(log1p_base10)
+
+# Rename columns for log1p-transformed values
+colnames(log_tpm) <- paste0(colnames(log_tpm), "_Log")
+
+# Combine the original TPMs and log1p-transformed values into a single dataframe
+ccle_tpm_combined <- cbind(ordered_transposed_data, log_tpm)
+
+# Add "unknown" to the levels of the factor and replace NA values
+ccle_tpm_combined <- ccle_tpm_combined %>%
+  dplyr::mutate(reported_sex = forcats::fct_expand(reported_sex, "unknown")) %>%
+  tidyr::replace_na(list(reported_sex = "unknown"))
+
+# Define the gene columns in the dataset (the log-transformed values)
+log_gene_columns <- grep("_Log$", colnames(ccle_tpm_combined), value = TRUE)
+
+# View the final result with both TPM and Log TPM
+print(head(ccle_tpm_combined))
+```
+
+## Calculating Thresholds
+
+Thresholds for gene expression levels are defined. TPM values above 10 indicate expression, values below 1 indicate no expression, and values between 1 and 10 are considered intermediate. These thresholds are applied to both X and Y chromosome genes.
+
+```{r Thresholds}
+# High threshold: 10 TPM
+high_threshold <- log10(1 + 10)
+
+# Low threshold: 1 TPM
+low_threshold <- log10(1 + 1)
+```
+
+## Violin Plots
+
+Violin plots visualize the expression levels of genes of interest across reported sex categories. Thresholds for expression are overlaid to assist in evaluating the expression distribution and its correlation with reported sex.
+
+```{r IndividualViolins}
+# Function to create individual violin plots for each gene with thresholds (only males and females)
+create_violin_plot_with_thresholds <- function(chosen_gene, 
+                                               data, 
+                                               low_threshold, high_threshold) {
+  
+  # Prepare the data for the chosen gene (log TPM values), filtering for males and females only
+  gene_data <- data.frame(
+    reported_sex = data$reported_sex,
+    expression = data[[chosen_gene]]
+  ) %>%
+    dplyr::filter(reported_sex %in% c("male", "female")) %>%  # Filter only males and females
+    mutate(reported_sex_capitalized = case_when(
+      reported_sex == "male" ~ "Male",
+      reported_sex == "female" ~ "Female"
+    ))
+  
+  # Clean up the gene name by removing the _TPM_Log1p10 suffix for y-axis label
+  gene_label <- gsub("_TPM_Log", "", chosen_gene)
+  
+  # Calculate sample sizes for each group
+  sample_sizes <- gene_data %>%
+    group_by(reported_sex_capitalized) %>%
+    summarise(n = n())
+  
+  # Plot the violin plot with thresholds
+  plot <- ggplot(gene_data, aes(x = reported_sex_capitalized, y = expression, fill = reported_sex_capitalized)) + 
+    geom_violin(trim = FALSE, scale = "width", adjust = 1.0) +  
+    geom_jitter(size = 0.25, width = 0.2) +  
+    ylab(paste0(gene_label, " Gene Expression (Log10(1 + TPM))")) + 
+    xlab("Reported Sex") +
+    theme_light() +
+    
+    # Capitalize "Female" and "Male" in the legend
+    scale_fill_manual(values = c("#ff9900ff", "#ff99007f"),
+                      labels = c("Female", "Male"),
+                      name = "Reported Sex") +
+    
+    ggtitle(paste("CCLE Gene Expression of", gene_label, "by Reported Sex")) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    
+    # Add thresholds
+    geom_hline(yintercept = high_threshold, linetype = "dashed", color = "red") + 
+    geom_hline(yintercept = low_threshold, linetype = "dashed", color = "blue") +
+    
+    # Annotate with threshold values
+    annotate("text", x = 1.5, y = high_threshold, 
+             label = "Expressed: >= 10 TPM", color = "red", vjust = -0.5) +
+    annotate("text", x = 1.5, y = low_threshold, 
+             label = "Not Expressed: <= 1 TPM", color = "blue", vjust = -0.5) +
+    
+    # Add sample sizes at the top
+    geom_text(data = sample_sizes, aes(x = reported_sex_capitalized, y = max(gene_data$expression) + 0.5, 
+                                       label = paste0("n = ", n)), vjust = 0)
+  
+  # Save the plot as a PDF
+  ggsave(paste0("CCLE_violin_", gene_label, "_with_thresholds.pdf"), plot, 
+         width = 16, height = 10, units = "cm")
+  
+  # Save the plot as a PNG
+  ggsave(paste0("CCLE_violin_", gene_label, "_with_thresholds.png"), plot, 
+         width = 16, height = 10, units = "cm")
+}
+
+# Create violin plots for all genes with thresholds (only for males and females)
+for (i in 1:length(log_gene_columns)) {
+  chosen_gene <- log_gene_columns[i]
+  
+  # Create the plot for the current gene, filtering males and females, and adding thresholds
+  create_violin_plot_with_thresholds(chosen_gene, 
+                                     ccle_tpm_combined,
+                                     low_threshold, high_threshold)
+}
+```
+
+## Expression Table
+
+Using the predefined thresholds, this section categorizes gene expression levels (expressed, intermediate, not expressed) for each cell line and writes the results to a CSV file for further analysis.
+
+```{r ExpressionTable}
+# Function to add gene expression data (TPM values and expression levels) to the combined results
+add_gene_expression <- function(chosen_gene, combined_results) {
+  
+  # Append '_TPM' to the gene name to match the TPM column in the data
+  chosen_gene_tpm <- paste0(chosen_gene, "_TPM")
+  
+  # Ensure the gene exists in the data
+  if (!(chosen_gene_tpm %in% colnames(ccle_tpm_combined))) {
+    message(paste("Gene", chosen_gene_tpm, "not found in the data. Skipping."))
+    return(combined_results)
+  }
+  
+  # Select the expression values (TPM) for the chosen gene
+  tpm_values <- ccle_tpm_combined[[chosen_gene_tpm]]
+  
+  # Categorize expression levels based on the TPM values
+  expression_level <- sapply(tpm_values, function(tpm_value) {
+    if (tpm_value >= 10) {
+      "expressed"
+    } else if (tpm_value <= 1) {
+      "not_expressed"
+    } else {
+      "intermediate"
+    }
+  })
+  
+  # Create a data frame with TPM values and expression levels
+  gene_data <- data.frame(
+    CCLE_ID = rownames(ccle_tpm_combined),
+    TPM = tpm_values,
+    Expression_Level = expression_level
+  )
+  
+  # Rename the columns to include the gene name
+  colnames(gene_data)[2:3] <- paste0(chosen_gene, c("_TPM", "_Expression_Level"))
+
+  # Merge the gene data into the combined results
+  combined_results <- merge(combined_results, gene_data, 
+                            by = "CCLE_ID", all.x = TRUE)
+  return(combined_results)
+}
+
+# Initialize the combined results data frame with CCLE_ID, reported_sex, and pathology
+combined_results <- data.frame(CCLE_ID = rownames(ccle_tpm_combined), 
+                               reported_sex = ccle_tpm_combined$reported_sex,
+                               pathology = ccle_tpm_combined$pathology,
+                               site_primary = ccle_tpm_combined$site_primary,
+                               site_subtype1 = ccle_tpm_combined$site_subtype1,
+                               site_subtype2 = ccle_tpm_combined$site_subtype2,
+                               age = ccle_tpm_combined$age)
+
+# Add gene expression data for each gene in available_genes
+for (gene in available_genes) {
+  # Add the expression data for each gene
+  combined_results <- add_gene_expression(gene, combined_results)
+}
+
+# Write the combined results to a CSV file
+csv_file <- file.path(data_directory, "CCLE_gene_expression_data.csv")
+write.csv(combined_results, csv_file, row.names = FALSE)
+
+# View the combined results
+head(combined_results)
+```
+
+## List all the packages used for future reference
+
+This section captures the session information, including all loaded packages, their versions, and the environment details. This ensures reproducibility and easy debugging of the analysis.
+
+```{r SessionInfo}
+# Capture the output of sessionInfo and write it to the file
+capture.output(sessionInfo(), file = "CCLE_SexChrom_GeneExpr_sessioninfo.txt")
+```
