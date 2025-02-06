@@ -954,6 +954,9 @@ male_summary_inclusive <- primary_tumor_data %>%
 ## Heatmap 
 #### Integrating the factoring the levels of 'expressed', 'intermediate', and 'not expressed' to better group the samples in heatmap
 ```{r}
+# Load tibble R package
+library(tibble)
+
 # Integrate the ordering of gene samples based on 
 # Order the data by gene expression levels categories
 sex_genes <- inferred_sex_chromosome_complement %>%
@@ -1014,6 +1017,10 @@ combined_genes_df <- data.frame(
 library(ComplexHeatmap)
 library(circlize)  # For color functions
 library(grid)
+
+# # Install this package to be able to print/output heatmap
+# install.packages("Cairo")
+# library(Cairo)
 
 # Prepare the expression matrix (excluding 'Chromosome' and 'Gene' columns)
 expression_matrix <- as.matrix(combined_genes_df[, -c(1, 2)])  # Exclude Chromosome and Gene columns
@@ -1082,6 +1089,149 @@ draw(heatmap)
 # draw(heatmap)
 # dev.off()  # Close the device after drawing the heatmap
 ```
+
+
+## Modifying the Heatmap above to integrate better scaling by Rows
+```{r}
+##### Load csv file to prevent having to re-run this entire script ######
+inferred_sex_chromosome_complement <- read.csv("inferred_sex_chromosome_complement.csv", header = TRUE)
+
+# Load tibble R package
+library(tibble)
+
+# Integrate the ordering of gene samples based on 
+# Order the data by gene expression levels categories
+sex_genes <- inferred_sex_chromosome_complement %>%
+  arrange(across(contains("_expression_category"), 
+                 ~ factor(., levels = c("expressed", 
+                                        "intermediate", 
+                                        "not expression"))))
+
+# Subset the data to include only the columns of interest (gene expressions, gender, and sample_type)
+sex_genes <- sex_genes %>%
+  filter(sample_type == "Primary Tumor") %>%  # Filter for 'Primary Tumor'
+  select(cases, cases.submitter_id, sample_type, gender, XIST, RPS4Y1, ZFY, USP9Y, DDX3Y, UTY, KDM5D, EIF1AY)
+
+# Apply log10(1 + gene_expression) transformation to the data
+sex_genes <- sex_genes %>%
+  mutate(across(XIST:EIF1AY, ~ log10(1 + .)))
+
+# Order genes based on the grouping: XIST (X), RPS4Y1, ZFY (Yp), USP9Y, DDX3Y, UTY, KDM5D, EIF1AY (Yq)
+gene_order <- c("XIST", "RPS4Y1", "ZFY", "USP9Y", "DDX3Y", "UTY", "KDM5D", "EIF1AY")
+
+# Create a separate dataframe for males and females
+sex_genes_male <- filter(sex_genes, gender == "MALE") %>% select(-gender)
+sex_genes_female <- filter(sex_genes, gender == "FEMALE") %>% select(-gender)
+
+# Reorder columns according to the specific chromosome grouping
+sex_genes_male <- sex_genes_male[, gene_order]
+sex_genes_female <- sex_genes_female[, gene_order]
+
+# Combine the data back together for heatmap
+combined_genes <- rbind(
+  mutate(sex_genes_female, gender = "FEMALE"),
+  mutate(sex_genes_male, gender = "MALE")
+)
+
+# Create unique sample labels by combining gender with row numbers to avoid duplicates
+combined_genes$Sample <- paste(combined_genes$gender, seq_len(nrow(combined_genes)), sep = "_")
+
+# Transpose the data so that genes are rows and samples (genders) are columns
+combined_genes_t <- combined_genes %>%
+  select(-gender) %>%
+  column_to_rownames("Sample") %>%
+  t()
+
+# Create chromosome labels for the genes for gene localization in respective chromosome
+chromosome_labels <- c("X", "Yp", "Yp", "Yq", "Yq", "Yq", "Yq", "Yq")
+
+# Extract gene names (without chromosome labels)
+gene_names <- rownames(combined_genes_t)
+
+# Create a new dataframe with separate Gene and Chromosome columns
+combined_genes_df <- data.frame(
+  Chromosome = chromosome_labels,
+  Gene = gene_names,
+  combined_genes_t
+)
+
+# Load necessary libraries
+library(ComplexHeatmap)
+library(circlize)  # For color functions
+library(grid)
+
+# # Install this package to be able to print/output heatmap
+# install.packages("Cairo")
+library(Cairo)
+
+# Prepare the expression matrix (excluding 'Chromosome' and 'Gene' columns)
+expression_matrix <- as.matrix(combined_genes_df[, -c(1, 2)])  # Exclude Chromosome and Gene columns
+rownames(expression_matrix) <- combined_genes_df$Gene  # Set the gene names as row names
+
+# Define the chromosome grouping labels (to appear once per gene)
+chromosome_groups <- factor(combined_genes_df$Chromosome, levels = c("X", "Yp", "Yq"))
+
+# Create row annotations for chromosome groups (one per gene)
+chromosome_annotation <- rowAnnotation(
+  Chromosome = anno_text(combined_genes_df$Chromosome, 
+                         which = "row", rot = 90, just = "center", 
+                         gp = gpar(fontsize = 10))
+)
+
+# Get the indices of FEMALE and MALE samples using grep
+female_indices <- grep("^FEMALE", colnames(expression_matrix))
+male_indices <- grep("^MALE", colnames(expression_matrix))
+
+# Combine FEMALE and MALE indices without reordering
+new_order <- c(female_indices, male_indices)
+
+# Reorder the expression matrix accordingly (but without ordering based on gene expression)
+expression_matrix <- expression_matrix[, new_order]
+
+# Create the column split factor based on gender
+new_column_split <- factor(c(rep("FEMALE", length(female_indices)), 
+                             rep("MALE", length(male_indices))),
+                           levels = c("FEMALE", "MALE"))
+
+# Scaling by row:
+scaled_expression_matrix <- t(apply(expression_matrix, 1, scale))
+
+# Create the heatmap with custom layer function for individual row colors
+heatmap2 <- Heatmap(scaled_expression_matrix,
+        name = "Scaled Expression",    
+        col = c("royalblue3", "white", "red"),
+        cluster_rows = FALSE,         # Maintain gene order, no clustering
+        cluster_columns = FALSE,      # Maintain sample order, no clustering
+        row_split = chromosome_groups,  # Group genes by Chromosome
+        column_split = new_column_split,  # Split columns by gender
+        column_gap = unit(2, "mm"),
+        show_row_names = TRUE,        # Display gene names on the left
+        show_column_names = FALSE,
+        row_names_side = "left",      # Move gene names to the left
+        row_title_rot = 90,           # Rotate group labels (X, Yp, Yq) 90 degrees
+        row_title_gp = gpar(fontsize = 12),  # Font size for the chromosome labels
+        row_title = c("X", "Yp", "Yq"),      # Labels for chromosome groups
+        column_title = c("FEMALE", "MALE"), # Set titles for gender columns
+        column_title_side = "bottom",   # Place the titles at the bottom for Gender
+)
+
+# # Print the Heatmap
+# Cairo()
+# draw(heatmap2)
+# dev.off()
+# 
+# # Save the heatmap as a PNG
+# png("Heatmap2_TCGA_All_Cancers_Sex_Genes.png", width = 1200, height = 800, res = 150)  # Adjust resolution as needed
+# draw(heatmap2)
+# #dev.off()  # Close the device after drawing the heatmap
+# 
+# # Save the heatmap as a PDF
+# pdf("Heatmap2_TCGA_All_Cancers_Sex_Genes.pdf")  # Adjust width and height as needed
+# draw(heatmap2)
+# dev.off()  # Close the device after drawing the heatmap
+```
+
+
 
 ## Add age into dataframe from Mason's 'combined_cancer_data.csv'
 ```{r}
